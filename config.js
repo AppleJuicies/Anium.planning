@@ -1,6 +1,6 @@
 // Fill these in after following SETUP.md. Both values are safe to publish:
 // Google locks them to your GitHub Pages address.
 window.DW_CONFIG = {
-  clientId: '',   // e.g. 1234567890-abc.apps.googleusercontent.com
+  clientId: '892639768810-b19ltunsk5ucgjmckhodhh5rchccaa1b.apps.googleusercontent.com',
   apiKey: ''      // e.g. AIzaSy...
 };
