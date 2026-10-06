@@ -12,7 +12,7 @@ A Notion-style workspace for planning a design with your boss: mood board → na
 - **Sharing is per project.** Share → turn on *Anyone with the link can view* → copy the link. Viewers don't need a Google account, can't edit, and can download a copy. Your other projects stay private. Turning sharing off stops the link working.
 - **Download a copy** gives one `.html` file of a project (pictures included) that opens in any browser, even offline.
 - **History** keeps up to 30 versions per tab; edits within 10 minutes of each other are grouped.
-- **Pictures:** upload, paste a picture address, paste a copied picture (Ctrl/⌘+V), or drag files in. On Narrow scope, click a picture to move/zoom it and draw arrows, boxes, text, and freehand.
+- **Pictures:** every picture is saved as the app's own copy (in your Drive), even ones from Pinterest or other sites, so they never disappear. Upload, paste a picture or page address, paste a copied picture (Ctrl/⌘+V), or drag files in. On Narrow scope, click a picture to move/zoom it and draw arrows, boxes, text, and freehand.
 
 ## Files
 
@@ -20,10 +20,11 @@ A Notion-style workspace for planning a design with your boss: mood board → na
 |---|---|
 | `index.html` | The built app (everything in one file). Don't edit by hand. |
 | `privacy.html` | Privacy policy, linked from Google's sign-in screen. |
+| `api/image.js` | Picture fetcher on Vercel: downloads pictures from other sites (Pinterest pins included) so the app always keeps its own copy. |
 | `api/auth/` | Sign-in service on Vercel: keeps each browser signed in to Google and hands the app short-lived Drive access. |
 | `config.js` | Your Google Client ID + API key. |
 | `src/app.js` | App code, split into sections: core, storage (browser + Drive), one module per tab, shell. |
 | `src/app.css` | Styles (light/dark tokens at the top). |
 | `src/bridge.js` | Connects the mood board and Gantt templates to the app. |
-| `src/templates/` | Your `moodboard.html` (unchanged) and `gantt.html` (one change: the plan is pinned to a start date you pick, so dates don't shift for people opening it later). |
+| `src/templates/` | Your `moodboard.html` (one change: a picture dragged from another site uses the picture itself, at its largest size) and `gantt.html` (one change: the plan is pinned to a start date you pick, so dates don't shift for people opening it later). |
 | `src/build.py` | Rebuilds `index.html` from `src/`: `python3 src/build.py` |

@@ -646,10 +646,22 @@ document.addEventListener('drop',e=>{
   const files=Array.from(e.dataTransfer.files).filter(f=>f.type.startsWith('image/'));
   files.forEach(f=>{const r=new FileReader();r.onload=ev=>makeCard('image',{src:ev.target.result,w:240,h:200,pos});r.readAsDataURL(f);});
   if(!files.length){
-    const txt=e.dataTransfer.getData('text/plain')||e.dataTransfer.getData('text/uri-list');
-    if(txt&&txt.startsWith('http'))makeCard('image',{src:txt,w:240,h:200,pos});
+    const src=droppedPicture(e.dataTransfer);
+    if(src)makeCard('image',{src,w:240,h:200,pos});
   }
 });
+// A picture dragged from another site: use the picture itself (its largest size), not the link around it.
+function droppedPicture(dt){
+  const html=dt.getData('text/html');
+  const img=html&&new DOMParser().parseFromString(html,'text/html').querySelector('img');
+  if(img){
+    let best=img.getAttribute('src')||'',bw=0;
+    (img.getAttribute('srcset')||'').split(',').forEach(s=>{const[u,d]=s.trim().split(/\s+/);const w=parseFloat(d)||0;if(/^https?:/i.test(u||'')&&w>bw){bw=w;best=u;}});
+    if(/^(https?:|data:image\/)/i.test(best))return best;
+  }
+  const txt=(dt.getData('text/uri-list')||dt.getData('text/plain')||'').split('\n')[0].trim();
+  return /^https?:/i.test(txt)?txt:'';
+}
 
 // ─── Init ─────────────────────────────────────────────────────────
 const saved=loadData();

@@ -358,20 +358,48 @@ function addUrlImage(p, url){
   srcMap(p).set(url, id);
   if(!p.images[id]){
     p.images[id] = { id, url, addedAt:nowISO(), caption:'', events:[] };
-    keepCopy(p, id);
+    keepCopy(p, id, true);
   }
   return id;
 }
-// Try to keep our own copy of a web picture (works when the site allows it); otherwise it stays a link.
-async function keepCopy(p, id){
-  const im = p.images[id]; if(!im || !im.url || im.src) return;
+// Gets a picture from another site as a data URL. This site's server does the download (other sites
+// can't block it, and it finds the picture on page links such as Pinterest pins); a direct download is the fallback.
+// Returns null when there's no picture at that address; throws { code:'network' } when nothing could be reached.
+async function downloadPicture(url){
+  let reached = false;
+  for(const [src, opts] of [['/api/image?url=' + encodeURIComponent(url)], [url, { mode:'cors' }]]){
+    try {
+      const r = await fetch(src, opts); reached = reached || r.status < 500;
+      if(!r.ok) continue;
+      const b = await r.blob(); if(/^image\//.test(b.type)) return await blobToDataURL(b);
+    } catch(e){}
+  }
+  if(!reached) throw { code:'network' };
+  return null;
+}
+// Keeps our own copy of a web picture, so it never depends on the other site staying up.
+const copying = new Set();
+async function keepCopy(p, id, justAdded){
+  const im = p.images[id], key = p.id + ':' + id;
+  if(!canEdit() || !im || !im.url || im.src || copying.has(key)) return;
+  copying.add(key);
   try {
-    const r = await fetch(im.url, { mode:'cors' }); if(!r.ok) return;
-    const b = await r.blob(); if(!/^image\//.test(b.type)) return;
-    const c = await compress(await blobToDataURL(b));
+    let raw;
+    try { raw = await downloadPicture(im.url); } catch(e){ return; } // offline: keep it and try again next time
+    if(!raw){
+      frames.forEach(f => { if(f.pid === p.id) postFrame(f, { type:'img-failed', from: im.url, remove: !!justAdded }); });
+      if(justAdded) toast('Couldn’t get a picture from that address. Right-click the picture on the website → Copy image, then press Ctrl/⌘+V on the board.', 8000);
+      return;
+    }
+    const c = await compress(raw);
     im.src = c.data; im.w = c.w; im.h = c.h; srcMap(p).set(c.data, id);
+    frames.forEach(f => { if(f.pid === p.id) postFrame(f, { type:'img-swap', from: im.url, to: c.data }); });
     markChanged(p);
-  } catch(e){}
+  } finally { copying.delete(key); }
+}
+// Pictures still saved only as links (the site was down, or the app was offline) get another try every time the app opens.
+function rescuePictures(){
+  if(canEdit()) W.projects.forEach(p => Object.values(p.images).forEach(im => { if(im.url && !im.src && !im.driveId) keepCopy(p, im.id); }));
 }
 async function ensureImages(p){
   if(ROLE !== 'owner' || !driveOn) return;
@@ -544,6 +572,7 @@ async function syncWithDrive(){
     await ensureImages(proj());
     await flush();
     renderAll(true);
+    rescuePictures();
   } catch(e){ driveError(e); renderAll(false); }
 }
 
@@ -564,6 +593,8 @@ const MoodboardModule = {
   ingest(p, raw){
     ingestChain = ingestChain.then(async () => {
       for(const c of (raw.cards || [])){
+        // A card whose picture is missing reports the app's own address as its picture.
+        if(c.type === 'image' && c.src === location.origin + location.pathname) c.src = '';
         if(c.type !== 'image' || !c.src || c.src.startsWith('img:')) continue;
         const known = srcMap(p).get(c.src);
         if(known){ c.src = 'img:' + known; continue; }
@@ -1260,7 +1291,7 @@ function renderDrawer(){
       const uses = ((p.mods.scope.data && p.mods.scope.data.options) || []).filter(o => o.img === id).map(o => o.title || 'Untitled option');
       body.append(el('dl', { class:'kv' },
         el('dt', { text:'Added' }), el('dd', { text: fmtDate(im.addedAt) }),
-        im.url ? el('dt', { text:'Source' }) : null, im.url ? el('dd', null, el('a', { href: im.url, target:'_blank', rel:'noopener noreferrer', text: host(im.url) }), im.src ? '' : el('div', { class:'muted small', text:'Shown from the original site. If that site removes it, it disappears here.' })) : null,
+        im.url ? el('dt', { text:'Source' }) : null, im.url ? el('dd', null, el('a', { href: im.url, target:'_blank', rel:'noopener noreferrer', text: host(im.url) }), im.src ? '' : el('div', { class:'muted small', text:'Still saving a copy from the original site. The app keeps retrying each time it opens. If this stays, save the picture to your computer and drag the file onto the mood board.' })) : null,
         im.w ? el('dt', { text:'Size' }) : null, im.w ? el('dd', { text: im.w + ' × ' + im.h + ' px' }) : null,
         el('dt', { text:'Used in' }), el('dd', { text: uses.length ? uses.join(', ') : 'Not picked for an option yet' })));
       body.append(el('div', { class:'field-label', text:'Caption' }));
@@ -1310,12 +1341,13 @@ function openImagePicker(p, cb){
   });
   const urlIn = el('input', { class:'link-in', placeholder:'Paste a picture address, or a copied picture', 'aria-label':'Picture address' });
   const err = el('div', { class:'err', hidden:true });
-  const addUrl = () => {
+  const addUrl = async () => {
     const v = urlIn.value.trim(); if(!/^https?:\/\//i.test(v)){ err.hidden = false; err.textContent = 'Paste an address that starts with http:// or https://'; return; }
-    const probe = new Image();
-    probe.onload = () => { const id = addUrlImage(p, v); addToBoard(p, id); choose(id); toast('Picture added to this option and to your mood board'); };
-    probe.onerror = () => { err.hidden = false; err.textContent = 'That picture didn’t load. Make sure it’s the picture’s own address (right-click → Copy image address), or copy the picture itself and paste it here.'; };
-    probe.src = v;
+    err.hidden = true; toast('Getting the picture…', 8000);
+    let raw;
+    try { raw = await downloadPicture(v); } catch(e){ err.hidden = false; err.textContent = 'You seem to be offline. Try again once you’re connected.'; return; }
+    if(!raw){ err.hidden = false; err.textContent = 'Couldn’t get a picture from that address. Copy the picture itself (right-click → Copy image) and paste it here, or save it and upload the file.'; return; }
+    const id = await addDataImage(p, raw, v); addToBoard(p, id); choose(id); toast('Picture added to this option and to your mood board');
   };
   urlIn.addEventListener('keydown', e => { if(e.key === 'Enter') addUrl(); });
   urlIn.addEventListener('paste', async e => {
@@ -1353,6 +1385,7 @@ async function bootOwner(){
   W.projects.forEach(prepareProject);
   restoreUI();
   buildShell(); renderAll(true);
+  rescuePictures();
   if(!cacheOK) toast('This browser blocks saving. Connect Google Drive to keep your work.', 6000);
   if(W.projects.some(p => p._dirty)) scheduleFlush();
   window.addEventListener('pagehide', stashUI);

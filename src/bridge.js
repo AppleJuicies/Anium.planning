@@ -33,6 +33,15 @@
     var m = e.data; if(!m || !m.__wsParent) return;
     if(m.type === 'theme') setTheme(!!m.dark);
     if(m.type === 'font') setFont(m.font);
+    // The app saved its own copy of a web picture: show the copy instead of the link.
+    if(m.type === 'img-swap') document.querySelectorAll('img').forEach(function(i){ if(i.getAttribute('src') === m.from) i.setAttribute('src', m.to); });
+    // The app couldn't get a picture from that address: drop a card that was just added, otherwise mark it.
+    if(m.type === 'img-failed') document.querySelectorAll('.card img').forEach(function(i){
+      if(i.getAttribute('src') !== m.from) return;
+      var card = i.closest('.card');
+      if(m.remove){ card.remove(); try { save(); } catch(e){} }
+      else { card.classList.remove('ws-pending'); card.classList.add('ws-missing'); }
+    });
   });
   document.addEventListener('DOMContentLoaded', function(){ setTheme(!!I.dark); });
   document.addEventListener('keydown', function(e){
@@ -40,6 +49,25 @@
   }, true);
 
   if(I.mod === 'moodboard'){
+    // When a web picture doesn't load, the template would remove it from its card, and the next save
+    // would then lose the picture for good. Catch the error first (this runs before the template's own
+    // handler) and show "Getting picture…" while the app saves its own copy.
+    var st = document.createElement('style');
+    st.textContent = '.card.ws-pending img,.card.ws-missing img{visibility:hidden}'
+      + '.card.ws-pending::after,.card.ws-missing::after{position:absolute;inset:0;display:grid;place-items:center;padding:12px;text-align:center;font-size:12px;line-height:1.4;color:#8a8a8a;pointer-events:none}'
+      + '.card.ws-pending::after{content:"Getting picture…"}.card.ws-missing::after{content:"This picture couldn’t be loaded. Drag the file in again."}';
+    (document.head || document.documentElement).appendChild(st);
+    document.addEventListener('error', function(e){
+      var t = e.target, card = t && t.tagName === 'IMG' && t.closest && t.closest('.card');
+      if(!card) return;
+      e.stopPropagation();
+      var src = t.getAttribute('src') || '', web = /^https?:/i.test(src);
+      if(!card.classList.contains('ws-missing')) card.classList.add(web ? 'ws-pending' : 'ws-missing');
+    }, true);
+    document.addEventListener('load', function(e){
+      var t = e.target, card = t && t.tagName === 'IMG' && t.closest && t.closest('.card');
+      if(card) card.classList.remove('ws-pending', 'ws-missing');
+    }, true);
     function addFiles(files, pos){
       files.filter(function(f){ return f.type.indexOf('image/') === 0; }).forEach(function(f, i){
         var r = new FileReader();
@@ -86,39 +114,10 @@
           var cancel = document.getElementById('img-cancel'); if(cancel) cancel.click();
           addFiles(files);
         });
-        // Image addresses: check the picture can load here before adding it
-        var ok = document.getElementById('img-ok'), verified = null;
-        if(ok) ok.addEventListener('click', function(e){
-          var v = url.value.trim();
-          if(!/^https?:/i.test(v) || verified === v) return;
-          e.preventDefault(); e.stopImmediatePropagation();
-          ok.disabled = true; var label = ok.textContent; ok.textContent = 'Checking…';
-          var probe = new Image(), finished = false;
-          var finish = function(good){
-            if(finished) return; finished = true; ok.disabled = false; ok.textContent = label;
-            if(good){ verified = v; ok.click(); verified = null; showErr(''); }
-            else showErr('That picture didn’t load. Check the address is the picture itself (right-click → Copy image address). Some sites block sharing their pictures: in that case right-click → Copy image, then paste it in this box.');
-          };
-          probe.onload = function(){ finish(true); }; probe.onerror = function(){ finish(false); };
-          setTimeout(function(){ finish(false); }, 8000);
-          probe.src = v;
-        }, true);
+        // Picture or page addresses (e.g. a Pinterest pin) go straight in: the app fetches and keeps its own copy.
         var modal = document.getElementById('img-modal');
         if(modal) new MutationObserver(function(){ if(!modal.classList.contains('open')) showErr(''); }).observe(modal, { attributes:true, attributeFilter:['class'] });
       }
-      // Web-linked pictures that can't load: remove the dead card and explain
-      var mk = window.makeCard;
-      window.makeCard = function(type, opts){
-        var card = mk.apply(this, arguments);
-        if(type === 'image' && opts && /^https?:/i.test(opts.src || '')){
-          var img = card.querySelector('img');
-          if(img) img.addEventListener('error', function(){
-            if(card.isConnected){ card.remove(); try { save(); } catch(e){} }
-            post({ type:'notice', text:'That picture link stopped loading. Right-click the picture on the website → Copy image, then press Ctrl/⌘+V on the board.' });
-          });
-        }
-        return card;
-      };
     });
     // Tell the app which picture was clicked (for the image info panel)
     document.addEventListener('click', function(e){
