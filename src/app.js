@@ -540,7 +540,7 @@ async function syncWithDrive(){
    CORE · UI state
    ===================================================================== */
 const ui = { project:null, tab:'moodboard', drawer:null, sideOpen:false, sideClosed:false, noteId:null, selImg:null };
-function stashUI(){ SS.set('dw-ui', JSON.stringify({ project:ui.project, tab:ui.tab, drawer:ui.drawer, noteId:ui.noteId, sideClosed:ui.sideClosed })); }
+function stashUI(){ LS.set('dw-ui',JSON.stringify({ project:ui.project, tab:ui.tab, drawer:ui.drawer, noteId:ui.noteId, sideClosed:ui.sideClosed })); }
 const proj = () => W.projects.find(p => p.id === ui.project) || W.projects[0];
 
 /* =====================================================================
@@ -1326,7 +1326,7 @@ function openImagePicker(p, cb){
    BOOT
    ===================================================================== */
 function restoreUI(){
-  let st = null; try { st = JSON.parse(SS.get('dw-ui') || 'null'); } catch(e){}
+  let st = null; try { st = JSON.parse(LS.get('dw-ui') || 'null'); } catch(e){}
   if(st){ if(TAB_IDS.includes(st.tab)) ui.tab = st.tab; ui.drawer = st.drawer || null; ui.noteId = st.noteId || null; ui.sideClosed = !!st.sideClosed; }
   ui.project = (st && W.projects.some(p => p.id === st.project)) ? st.project : W.projects[0].id;
   if(ui.drawer === 'info' && ui.tab !== 'moodboard') ui.drawer = null;
@@ -1341,6 +1341,7 @@ async function bootOwner(){
   if(!cacheOK) toast('This browser blocks saving. Connect Google Drive to keep your work.', 6000);
   if(W.projects.some(p => p._dirty)) scheduleFlush();
   window.addEventListener('pagehide', stashUI);
+  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden') stashUI(); });
   if(HAS_GOOGLE && LS.get('dw-drive') === '1'){
     if(Drive.restore()) syncWithDrive();
     else { syncState = 'reconnect'; renderSidebar(); renderStatus(); renderHeader(); }
