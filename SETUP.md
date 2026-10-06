@@ -5,28 +5,28 @@ Google's menu names change now and then, so a label may be slightly different fr
 
 ## Part 1 — GitHub Pages
 
-1. On GitHub, create a new **public** repository named `design-workspace`.
+1. On GitHub, create a new **public** repository named `Anium.planning`.
    (Free GitHub Pages needs a public repo. Your projects are NOT stored in the repo — they live in your Google Drive — so nothing private is exposed.)
 2. Upload everything in this folder to the repo (drag the files and the `src` folder onto the repo page, then **Commit changes**).
 3. In the repo: **Settings → Pages**. Under *Build and deployment*, set **Source: Deploy from a branch**, **Branch: main**, folder **/ (root)**, then **Save**.
 4. After about a minute your app is live at:
-   `https://applejuicies.github.io/design-workspace/`
+   `https://applejuicies.github.io/Anium.planning/`
 
 The app already works at this point — it saves in your browser. Part 2 adds Google Drive (sync across computers + share links).
 
 ## Part 2 — Google Drive
 
 1. Go to **console.cloud.google.com** and sign in with the Google account whose Drive you want to use.
-2. Top bar project picker → **New project** → name it `Design Workspace` → **Create**. Make sure it's selected.
+2. Top bar project picker → **New project** → name it `Anium` → **Create**. Make sure it's selected.
 3. **APIs & Services → Library** → search **Google Drive API** → **Enable**.
 4. **Google Auth Platform** (or *OAuth consent screen*) → **Get started**:
-   - App name: `Design Workspace`, support email: your email.
+   - App name: `Anium.planning`, support email: your email.
    - Audience: **External**.
    - Contact email: your email → **Create**.
    - **Data access → Add or remove scopes** → find `.../auth/drive.file` ("See, edit, create, and delete only the specific Google Drive files you use with this app") → **Update → Save**.
    - **Audience → Test users → Add users** → add your own Gmail address → **Save**. Leave the app in *Testing*.
 5. **Clients** (or *Credentials → Create credentials → OAuth client ID*):
-   - Application type: **Web application**, name: `Design Workspace web`.
+   - Application type: **Web application**, name: `Anium web`.
    - **Authorized JavaScript origins → Add URI**: `https://applejuicies.github.io`
    - **Create** → copy the **Client ID** (ends in `.apps.googleusercontent.com`).
 6. **APIs & Services → Credentials → Create credentials → API key** → copy it, then **Edit API key**:

@@ -27,7 +27,7 @@ assert '</script' not in js.lower() and '</style' not in css.lower()
 
 html = ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
-        '<title>Design workspace</title>\n'
+        '<title>Anium.planning</title>\n'
         '<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%93%90%3C/text%3E%3C/svg%3E">\n'
         + FONT_LINK + '\n<style id="app-css">' + css + '</style>\n</head>\n<body>\n<div id="app"></div>\n'
         '<script src="config.js"></script>\n'

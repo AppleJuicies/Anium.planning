@@ -1,13 +1,13 @@
-# Design Workspace
+# Anium.planning
 
 A Notion-style workspace for planning a design with your boss: mood board → narrow the scope → schedule → notes.
 
-**App:** https://applejuicies.github.io/design-workspace/  ·  **First time?** See [SETUP.md](SETUP.md).
+**App:** https://applejuicies.github.io/Anium.planning/  ·  **First time?** See [SETUP.md](SETUP.md)  ·  [Privacy](privacy.html)
 
 ## How it works
 
 - **Projects** live in the sidebar. Each has four tabs: Mood board, Narrow scope, Gantt, Notes.
-- **Saving is automatic.** Without Google Drive connected, it saves in your browser. With Drive connected, every project is a folder in `My Drive / Design Workspace`, with its pictures as normal image files.
+- **Saving is automatic.** Without Google Drive connected, it saves in your browser. With Drive connected, every project is a folder in `My Drive / Anium.planning`, with its pictures as normal image files.
 - **Sharing is per project.** Share → turn on *Anyone with the link can view* → copy the link. Viewers don't need a Google account, can't edit, and can download a copy. Your other projects stay private. Turning sharing off stops the link working.
 - **Download a copy** gives one `.html` file of a project (pictures included) that opens in any browser, even offline.
 - **History** keeps up to 30 versions per tab; edits within 10 minutes of each other are grouped.
@@ -18,6 +18,7 @@ A Notion-style workspace for planning a design with your boss: mood board → na
 | Path | What it is |
 |---|---|
 | `index.html` | The built app (everything in one file). Don't edit by hand. |
+| `privacy.html` | Privacy policy, linked from Google's sign-in screen. |
 | `config.js` | Your Google Client ID + API key. |
 | `src/app.js` | App code, split into sections: core, storage (browser + Drive), one module per tab, shell. |
 | `src/app.css` | Styles (light/dark tokens at the top). |

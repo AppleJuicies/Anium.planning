@@ -263,7 +263,7 @@ const Drive = {
   async ensureRoot(){
     if(this.rootId) return;
     let f = await this.findOne("appProperties has { key='dw' and value='root' }");
-    if(!f) f = await this.folder('Design Workspace', null, { dw:'root' });
+    if(!f) f = await this.folder('Anium.planning', null, { dw:'root' });
     this.rootId = f.id;
     const ix = await this.findOne("appProperties has { key='dw' and value='index' }");
     this.indexId = ix ? ix.id : null;
@@ -512,7 +512,7 @@ async function syncWithDrive(){
     if(ix && ix.projects){
       const remoteIds = (ix.order || Object.keys(ix.projects)).filter(id => ix.projects[id]);
       if(remoteIds.length){ W.projects = W.projects.filter(p => !(p.pristine && !p.drive)); }
-      if(ix.title && !W._indexDirty) W.title = ix.title;
+      if(ix.title && !W._indexDirty) W.title = renamed(ix.title);
       for(const pid of remoteIds){
         const meta = ix.projects[pid];
         let remote; try { remote = await Drive.readJSON(meta.fileId); } catch(e){ if(e && e.code === 'auth') throw e; continue; }
@@ -976,7 +976,7 @@ function renderSidebar(){
   shell.root.classList.toggle('side-closed', ui.sideClosed);
   shell.root.classList.toggle('side-open', ui.sideOpen);
   const title = el('input', { class:'ws-title', value: W.title || '', placeholder:'Workspace name', 'aria-label':'Workspace name' });
-  title.addEventListener('input', () => { W.title = title.value; document.title = title.value || 'Design workspace'; markChanged(null); });
+  title.addEventListener('input', () => { W.title = title.value; document.title = title.value || 'Anium.planning'; markChanged(null); });
   s.append(el('div', { class:'ws-head' }, title,
     el('button', { class:'icon-btn', title:'Hide sidebar', 'aria-label':'Hide sidebar', onclick(){ if(window.innerWidth <= 820) ui.sideOpen = false; else ui.sideClosed = true; renderSidebar(); renderHeader(); } }, icon('menu'))));
   const list = el('div', { class:'side-sec' }, el('div', { class:'side-label', text:'Projects' }));
@@ -1092,7 +1092,7 @@ async function mountTab(){
 }
 function renderAll(remount){
   if(!shell.root) buildShell();
-  document.title = canEdit() ? (W.title || 'Design workspace') : (proj().name || 'Shared project');
+  document.title = canEdit() ? (W.title || 'Anium.planning') : (proj().name || 'Shared project');
   renderSidebar(); renderHeader(); renderBanner(); renderTabs();
   if(remount !== false || native) mountTab();
   renderDrawer();
@@ -1205,7 +1205,7 @@ async function importFile(file){
       added = [p];
     }
   } catch(e){ added = []; }
-  if(!added.length){ toast('That file isn’t a Design Workspace file.', 4000); return; }
+  if(!added.length){ toast('That file isn’t an Anium.planning file.', 4000); return; }
   added.forEach(p => { prepareProject(p); W.projects.push(p); p._dirty = true; });
   W.projects = W.projects.filter(p => !(p.pristine && !p.drive && W.projects.length > 1));
   W._indexDirty = true; markChanged(null);
@@ -1325,6 +1325,8 @@ function openImagePicker(p, cb){
 /* =====================================================================
    BOOT
    ===================================================================== */
+// Workspaces created before the rename still carry the old default title.
+const renamed = t => t === 'Design workspace' ? 'Anium.planning' : t;
 function restoreUI(){
   let st = null; try { st = JSON.parse(LS.get('dw-ui') || 'null'); } catch(e){}
   if(st){ if(TAB_IDS.includes(st.tab)) ui.tab = st.tab; ui.drawer = st.drawer || null; ui.noteId = st.noteId || null; ui.sideClosed = !!st.sideClosed; }
@@ -1334,7 +1336,8 @@ function restoreUI(){
 async function bootOwner(){
   let cached = null;
   try { cached = await IDB.get('workspace'); } catch(e){ cacheOK = false; }
-  W = cached && cached.projects && cached.projects.length ? cached : { v:2, title:'Design workspace', projects:[Object.assign(blankProject('First project'), { pristine:true })] };
+  W = cached && cached.projects && cached.projects.length ? cached : { v:2, title:'Anium.planning', projects:[Object.assign(blankProject('First project'), { pristine:true })] };
+  W.title = renamed(W.title);
   W.projects.forEach(prepareProject);
   restoreUI();
   buildShell(); renderAll(true);
