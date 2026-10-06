@@ -306,6 +306,7 @@ img{max-width:100%}
 .drive-on svg{width:14px;height:14px}
 .drive-on a{margin-left:auto;color:var(--acc);text-decoration:none;font-size:12px}
 .drive-on a:hover{text-decoration:underline}
+.drive-on a + a{margin-left:10px}
 .drive-btn{justify-content:center;width:100%}
 .status{font-size:12px;color:var(--faint);white-space:nowrap;padding:0 4px}
 .status.saved{color:var(--ok)}
@@ -392,7 +393,7 @@ const store = (kind) => ({
   set(k, v){ try { window[kind].setItem(k, v); return true; } catch(e){ return false; } },
   del(k){ try { window[kind].removeItem(k); } catch(e){} }
 });
-const LS = store('localStorage'), SS = store('sessionStorage');
+const LS = store('localStorage');
 const plain = o => JSON.parse(JSON.stringify(o, (k, v) => k.charAt(0) === '_' ? undefined : v));
 
 function el(tag, props, ...kids){
@@ -584,39 +585,37 @@ async function saveCache(){
 /* =====================================================================
    STORAGE · Google Drive (only files this app creates)
    ===================================================================== */
-const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const API = 'https://www.googleapis.com/drive/v3', UP = 'https://www.googleapis.com/upload/drive/v3';
 const publicMediaURL = id => API + '/files/' + encodeURIComponent(id) + '?alt=media&key=' + encodeURIComponent(CFG.apiKey);
-function loadGIS(){
-  return new Promise((res, rej) => {
-    if(window.google && google.accounts && google.accounts.oauth2) return res();
-    const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
-    s.onload = () => res(); s.onerror = () => rej({ code:'gis' }); document.head.append(s);
-  });
-}
+// Sign-in lives on this site's server (api/auth/*): Google is visited once, the server keeps the
+// sign-in in a secure cookie, and hands out short-lived Drive access whenever the app asks.
+const AUTH = '/api/auth/';
 const Drive = {
-  token: null, exp: 0, rootId: null, indexId: null,
+  token: null, exp: 0, rootId: null, indexId: null, refreshing: null,
   ok(){ return !!this.token && Date.now() < this.exp; },
-  restore(){
-    try { const t = JSON.parse(SS.get('dw-token') || 'null'); if(t && t.exp > Date.now() + 60000){ this.token = t.token; this.exp = t.exp; return true; } } catch(e){}
-    return false;
+  connect(){ location.assign(AUTH + 'start'); return new Promise(() => {}); },
+  refresh(){
+    if(!this.refreshing) this.refreshing = (async () => {
+      let r;
+      try { r = await fetch(AUTH + 'token', { method:'POST' }); } catch(e){ throw { code:'network' }; }
+      if(r.status === 401){ this.token = null; throw { code:'auth' }; }
+      if(!r.ok) throw { code:'network' };
+      const t = await r.json();
+      this.token = t.access_token; this.exp = Date.now() + (Number(t.expires_in || 3600) - 120) * 1000;
+      LS.set('dw-drive', '1');
+    })().finally(() => { this.refreshing = null; });
+    return this.refreshing;
   },
-  async connect(){
-    await loadGIS();
-    const r = await new Promise((res, rej) => {
-      const tc = google.accounts.oauth2.initTokenClient({ client_id: CFG.clientId, scope: SCOPE, callback: res, error_callback: rej });
-      tc.requestAccessToken({ prompt: LS.get('dw-drive') === '1' ? '' : 'consent' });
-    });
-    if(!r || r.error || !r.access_token) throw { code:'auth', detail: r && r.error };
-    this.token = r.access_token; this.exp = Date.now() + (Number(r.expires_in || 3600) - 120) * 1000;
-    SS.set('dw-token', JSON.stringify({ token: this.token, exp: this.exp })); LS.set('dw-drive', '1');
+  async signOut(){
+    try { await fetch(AUTH + 'logout', { method:'POST' }); } catch(e){}
+    this.token = null; this.rootId = null; this.indexId = null; LS.del('dw-drive');
   },
-  async req(method, url, body, headers){
-    if(!this.ok()) throw { code:'auth' };
+  async req(method, url, body, headers, retried){
+    if(!this.ok()) await this.refresh();
     let r;
     try { r = await fetch(url, { method, headers: Object.assign({ Authorization: 'Bearer ' + this.token }, headers || {}), body }); }
     catch(e){ throw { code:'network' }; }
-    if(r.status === 401){ this.token = null; SS.del('dw-token'); throw { code:'auth' }; }
+    if(r.status === 401){ this.token = null; if(!retried) return this.req(method, url, body, headers, true); throw { code:'auth' }; }
     if(r.status === 204) return null;
     if(!r.ok){ let t = ''; try { t = await r.text(); } catch(e){} throw { code:'http', status: r.status, text: t }; }
     const ct = r.headers.get('content-type') || '';
@@ -876,9 +875,22 @@ function driveError(e){
 }
 async function connectDrive(){
   if(!HAS_GOOGLE){ toast('Google Drive isn’t set up yet. Follow SETUP.md in the repo.', 5000); return; }
-  try { await Drive.connect(); }
-  catch(e){ toast('Google sign-in was closed or blocked. Allow pop-ups for this site and try again.', 5000); return; }
-  await syncWithDrive();
+  await flush();
+  Drive.connect();
+}
+// Tries the saved sign-in; quietly keeps retrying while offline.
+function resumeDrive(){
+  Drive.refresh().then(syncWithDrive, e => {
+    if(e && e.code === 'network'){ setTimeout(resumeDrive, 15000); return; }
+    if(LS.get('dw-drive') === '1'){ syncState = 'reconnect'; renderSidebar(); renderStatus(); renderHeader(); }
+  });
+}
+async function signOutDrive(){
+  await flush();
+  await Drive.signOut();
+  driveOn = false; syncState = 'local';
+  renderSidebar(); renderStatus(); renderHeader();
+  toast('Signed out of Google Drive. Your projects stay saved in your Drive.', 4500);
 }
 async function syncWithDrive(){
   syncState = 'saving'; renderStatus();
@@ -1377,7 +1389,8 @@ function renderSidebar(){
   foot.append(appearanceControls());
   const storage = el('div', { class:'storage' });
   if(!HAS_GOOGLE) storage.append(el('div', { class:'mode-note', text:'Saved in this browser. To sync with Google Drive and share links, finish SETUP.md in the repo.' }));
-  else if(driveOn) storage.append(el('div', { class:'drive-on' }, icon('drive'), el('span', { text:'Google Drive' }), el('a', { href:'https://drive.google.com/drive/folders/' + Drive.rootId, target:'_blank', rel:'noopener', text:'Open folder' })));
+  else if(driveOn) storage.append(el('div', { class:'drive-on' }, icon('drive'), el('span', { text:'Google Drive' }), el('a', { href:'https://drive.google.com/drive/folders/' + Drive.rootId, target:'_blank', rel:'noopener', text:'Open folder' }),
+    el('a', { href:'#', text:'Sign out', onclick(e){ e.preventDefault(); signOutDrive(); } })));
   else storage.append(el('button', { class:'btn drive-btn', onclick: connectDrive }, icon('drive'), syncState === 'reconnect' ? 'Reconnect Google Drive' : 'Connect Google Drive'),
     el('div', { class:'mode-note', text: syncState === 'reconnect' ? 'Your sign-in expired. Changes are kept on this computer until you reconnect.' : 'Until you connect, everything is saved in this browser only.' }));
   foot.append(storage);
@@ -1721,10 +1734,12 @@ async function bootOwner(){
   if(W.projects.some(p => p._dirty)) scheduleFlush();
   window.addEventListener('pagehide', stashUI);
   document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden') stashUI(); });
-  if(HAS_GOOGLE && LS.get('dw-drive') === '1'){
-    if(Drive.restore()) syncWithDrive();
-    else { syncState = 'reconnect'; renderSidebar(); renderStatus(); renderHeader(); }
+  const auth = new URLSearchParams(location.search).get('auth');
+  if(auth){
+    history.replaceState(null, '', location.pathname);
+    toast(auth === 'cancelled' ? 'Google sign-in was cancelled.' : 'Google sign-in didn’t finish. Try again.', 5000);
   }
+  if(HAS_GOOGLE) resumeDrive();
 }
 async function bootViewer(){
   fullMessage('Loading…', '');

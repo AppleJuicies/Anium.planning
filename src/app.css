@@ -298,6 +298,7 @@ img{max-width:100%}
 .drive-on svg{width:14px;height:14px}
 .drive-on a{margin-left:auto;color:var(--acc);text-decoration:none;font-size:12px}
 .drive-on a:hover{text-decoration:underline}
+.drive-on a + a{margin-left:10px}
 .drive-btn{justify-content:center;width:100%}
 .status{font-size:12px;color:var(--faint);white-space:nowrap;padding:0 4px}
 .status.saved{color:var(--ok)}
