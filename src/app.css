@@ -361,3 +361,13 @@ img{max-width:100%}
 .modal .pick-grid{margin-top:12px}
 @media (max-width:820px){ .ed-group{border-right:0;padding-right:0} .add-row{flex-wrap:wrap} }
 .ed-stage{width:min(100%, calc((94vh - 230px) * 4 / 3));align-self:center;flex-shrink:0}
+/* Progress for Google (status report + slides) */
+.rep-pop{width:340px;padding:8px}
+.rep-h{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:4px 6px 8px}
+.rep-item{display:flex;align-items:center;gap:12px;padding:10px 8px;border-radius:7px}
+.rep-item:hover{background:var(--hover)}
+.rep-tx{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.rep-tx strong{font-size:13.5px;font-weight:600}
+.rep-tx span{font-size:12px;color:var(--muted);line-height:1.4}
+.rep-tip{font-size:12px;color:var(--muted);line-height:1.45;padding:10px 8px 4px;border-top:1px solid var(--bdr);margin-top:4px}
+.rep-row{display:flex;gap:8px;flex-wrap:wrap;padding:8px}

@@ -9,6 +9,8 @@ A Notion-style workspace for planning a design with your boss: mood board → na
 - **Projects** live in the sidebar. Each has four tabs: Mood board, Narrow scope, Gantt, Notes.
 - **Sign in once.** Connecting Google Drive keeps that browser signed in, so projects load by themselves every time the app opens.
 - **Gantt: Timeline or Board.** The timeline shows the 2-week schedule; the board shows the same tasks as cards, by phase or by progress (To do / In progress / Done). Drag phases, tasks and cards to reorganise them in either view.
+- **Task and phase details.** Click a task (or a bar, or a board card) to open its details: status, priority, dates, notes, and attachments. Files you attach are stored in the project's Drive folder; links (e.g. a Google Doc) are kept with the task.
+- **Progress for Google.** The *Progress* button opens the project's **status report** (a Google Doc kept up to date automatically in the project's Drive folder, ready for Gemini or NotebookLM) and **makes status slides** (a Google Slides deck built from today's progress).
 - **Saving is automatic.** Without Google Drive connected, it saves in your browser. With Drive connected, every project is a folder in `My Drive / Anium.planning`, with its pictures as normal image files.
 - **Sharing is per project.** Share → turn on *Anyone with the link can view* → copy the link. Viewers don't need a Google account, can't edit, and can download a copy. Your other projects stay private. Turning sharing off stops the link working.
 - **Download a copy** gives one `.html` file of a project (pictures included) that opens in any browser, even offline.
@@ -24,6 +26,7 @@ A Notion-style workspace for planning a design with your boss: mood board → na
 | `api/image.js` | Picture fetcher on Vercel: downloads pictures from other sites (Pinterest pins included) so the app always keeps its own copy. |
 | `api/auth/` | Sign-in service on Vercel: keeps each browser signed in to Google and hands the app short-lived Drive access. |
 | `config.js` | Your Google Client ID + API key. |
+| `vendor/` | PptxGenJS (MIT), used to build the status slides. |
 | `src/app.js` | App code, split into sections: core, storage (browser + Drive), one module per tab, shell. |
 | `src/app.css` | Styles (light/dark tokens at the top). |
 | `src/bridge.js` | Connects the mood board and Gantt templates to the app. |

@@ -5,9 +5,16 @@
   var I = window.__WS_INIT || {};
   function post(m){ m.__ws = 1; m.mod = I.mod; try { window.parent.postMessage(m, '*'); } catch(e){} }
 
+  var waiting = {}, seq = 0;
   window.__bridge = {
     load: function(){ return I.data ? JSON.stringify(I.data) : null; },
-    save: function(o){ post({ type:'save', data: JSON.parse(JSON.stringify(o)) }); }
+    save: function(o){ post({ type:'save', data: JSON.parse(JSON.stringify(o)) }); },
+    readOnly: !!I.readOnly,
+    // Attachments: the app stores the files (in Google Drive when connected) and hands back their details.
+    addFiles: function(files){
+      return new Promise(function(resolve){ var id = ++seq; waiting[id] = resolve; post({ type:'file-add', reqId: id, files: Array.prototype.slice.call(files) }); });
+    },
+    openFile: function(id){ post({ type:'file-open', id: id }); }
   };
 
   function setFont(f){
@@ -33,6 +40,7 @@
     var m = e.data; if(!m || !m.__wsParent) return;
     if(m.type === 'theme') setTheme(!!m.dark);
     if(m.type === 'font') setFont(m.font);
+    if(m.type === 'file-added' && waiting[m.reqId]){ waiting[m.reqId](m.items || []); delete waiting[m.reqId]; }
     // The app saved its own copy of a web picture: show the copy instead of the link.
     if(m.type === 'img-swap') document.querySelectorAll('img').forEach(function(i){ if(i.getAttribute('src') === m.from) i.setAttribute('src', m.to); });
     // The app couldn't get a picture from that address: drop a card that was just added, otherwise mark it.

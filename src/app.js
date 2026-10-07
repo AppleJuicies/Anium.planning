@@ -38,6 +38,7 @@ function el(tag, props, ...kids){
 const NS = 'http://www.w3.org/2000/svg';
 function svgEl(tag, attrs){ const e = document.createElementNS(NS, tag); for(const k in attrs) e.setAttribute(k, attrs[k]); return e; }
 const ICON = {
+  report:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="2" y="2.5" width="12" height="9" rx="1.2"/><path d="M5 9V7.2M8 9V5.2M11 9V6.4M6 14h4"/></svg>',
   menu:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg>',
   board:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2" width="5" height="7" rx="1"/><rect x="9" y="2" width="5" height="4" rx="1"/><rect x="2" y="11" width="5" height="3" rx="1"/><rect x="9" y="8" width="5" height="6" rx="1"/></svg>',
   scope:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 3h12l-4.5 5.5V13l-3 1.2V8.5z"/></svg>',
@@ -198,7 +199,8 @@ const IDB = {
     });
   },
   async get(k){ const db = await this.open(); return new Promise((res, rej) => { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); },
-  async set(k, v){ const db = await this.open(); return new Promise((res, rej) => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put(v, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
+  async set(k, v){ const db = await this.open(); return new Promise((res, rej) => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put(v, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); },
+  async del(k){ const db = await this.open(); return new Promise((res, rej) => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').delete(k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
 };
 let cacheOK = true;
 async function saveCache(){
@@ -256,6 +258,20 @@ const Drive = {
     return this.req('POST', UP + '/files?uploadType=multipart&fields=id', body, { 'Content-Type': 'multipart/related; boundary=' + b });
   },
   update(id, blob){ return this.req('PATCH', UP + '/files/' + id + '?uploadType=media&fields=id', blob, { 'Content-Type': blob.type || 'application/json' }); },
+  // Files over 4 MB go up as a resumable upload (multipart uploads are meant for small files).
+  async uploadLarge(meta, blob, retried){
+    if(blob.size <= 4 * 1024 * 1024) return this.upload(meta, blob);
+    if(!this.ok()) await this.refresh();
+    let r;
+    try { r = await fetch(UP + '/files?uploadType=resumable&fields=id', { method:'POST', headers:{ Authorization:'Bearer ' + this.token, 'Content-Type':'application/json; charset=UTF-8', 'X-Upload-Content-Type': blob.type || 'application/octet-stream' }, body: JSON.stringify(meta) }); }
+    catch(e){ throw { code:'network' }; }
+    if(r.status === 401 && !retried){ this.token = null; return this.uploadLarge(meta, blob, true); }
+    const at = r.ok && r.headers.get('Location');
+    if(!at) throw { code:'http', status: r.status };
+    try { r = await fetch(at, { method:'PUT', body: blob }); } catch(e){ throw { code:'network' }; }
+    if(!r.ok) throw { code:'http', status: r.status };
+    return r.json();
+  },
   async readJSON(id){ const r = await this.req('GET', API + '/files/' + id + '?alt=media'); return r instanceof Blob ? JSON.parse(await r.text()) : r; },
   async readImage(id){ const r = await this.req('GET', API + '/files/' + id + '?alt=media'); return blobToDataURL(r); },
   async ensureRoot(){
@@ -289,6 +305,13 @@ const Drive = {
         const r = await this.upload({ name: 'picture-' + im.id + ext, parents:[p.drive.folderId] }, blob);
         im.driveId = r.id;
       }
+    }
+    for(const f of Object.values(p.files || {})){
+      if(f.driveId) continue;
+      let blob = null; try { blob = await IDB.get('file:' + f.id); } catch(e){}
+      if(!blob) continue; // added on another device and not uploaded yet
+      const r = await this.uploadLarge({ name: f.name, parents:[p.drive.folderId], appProperties:{ dwFile: f.id } }, blob);
+      f.driveId = r.id;
     }
     for(const id of (p._trash || []).splice(0)){ try { await this.json('PATCH', '/files/' + id, { trashed:true }); } catch(e){} }
     const blob = new Blob([JSON.stringify(serializeProject(p))], { type:'application/json' });
@@ -401,6 +424,53 @@ async function keepCopy(p, id, justAdded){
 function rescuePictures(){
   if(canEdit()) W.projects.forEach(p => Object.values(p.images).forEach(im => { if(im.url && !im.src && !im.driveId) keepCopy(p, im.id); }));
 }
+/* =====================================================================
+   CORE · attachments (files on Gantt tasks and phases)
+   The file itself is kept in this browser (IndexedDB) and uploaded to the project's Drive folder;
+   the project only stores its name, size and Drive id.
+   ===================================================================== */
+const MAX_FILE = 200 * 1024 * 1024;
+async function addFiles(p, files){
+  const items = [];
+  for(const file of files){
+    if(!(file instanceof Blob)) continue;
+    if(file.size > MAX_FILE){ toast('“' + file.name + '” is over 200 MB. Put it in Google Drive and attach a link to it instead.', 7000); continue; }
+    const meta = { id: 'f' + uid() + uid(), name: file.name || 'file', type: file.type || '', size: file.size, addedAt: nowISO() };
+    try { await IDB.set('file:' + meta.id, file); }
+    catch(e){ toast('Couldn’t save “' + meta.name + '” in this browser. It may be out of space.', 6000); continue; }
+    p.files[meta.id] = meta;
+    items.push(meta);
+  }
+  if(items.length){
+    markChanged(p);
+    if(!driveOn) toast('Attached. Connect Google Drive to keep attachments safe and available on your other devices.', 6000);
+  }
+  return items;
+}
+async function openFile(p, id){
+  const f = p.files && p.files[id];
+  if(!f){ toast('That attachment isn’t available any more.', 4000); return; }
+  if(f.driveId){ window.open('https://drive.google.com/file/d/' + encodeURIComponent(f.driveId) + '/view', '_blank', 'noopener'); return; }
+  let blob = null; try { blob = await IDB.get('file:' + id); } catch(e){}
+  if(!blob){ toast('This file is still uploading from the computer it was added on. It will be available once that computer saves to Drive.', 7000); return; }
+  const url = URL.createObjectURL(blob);
+  const viewable = /^(image\/|video\/|audio\/|text\/plain|application\/pdf)/.test(f.type);
+  const a = el('a', { href: url, target:'_blank', rel:'noopener' }); if(!viewable) a.download = f.name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+function pruneFiles(p){
+  const refs = new Set();
+  [p.mods.gantt.data].concat((p.history || []).filter(h => h.mod === 'gantt').map(h => h.snap)).forEach(d => MODULES.gantt.fileRefs(d).forEach(id => refs.add(id)));
+  Object.keys(p.files || {}).forEach(id => {
+    if(refs.has(id)) return;
+    const f = p.files[id];
+    if(f.driveId) p._trash = (p._trash || []).concat(f.driveId);
+    delete p.files[id];
+    IDB.del('file:' + id).catch(() => {});
+  });
+}
+
 async function ensureImages(p){
   if(ROLE !== 'owner' || !driveOn) return;
   const need = Object.values(p.images).filter(im => im.driveId && !im.src);
@@ -419,7 +489,7 @@ function projectImageRefs(p){
    ===================================================================== */
 function blankProject(name){
   const t = nowISO();
-  const p = { id:uid(), name: name || 'Untitled project', icon:'📐', createdAt:t, updatedAt:t, history:[], images:{}, mods:{} };
+  const p = { id:uid(), name: name || 'Untitled project', icon:'📐', createdAt:t, updatedAt:t, history:[], images:{}, files:{}, mods:{} };
   TAB_IDS.forEach(m => p.mods[m] = { data: MODULES[m].defaultData(), editedAt:null });
   return p;
 }
@@ -434,7 +504,7 @@ function pinGanttStart(p){
   return true;
 }
 function prepareProject(p){
-  p.images = p.images || {}; p.history = p.history || [];
+  p.images = p.images || {}; p.files = p.files || {}; p.history = p.history || [];
   TAB_IDS.forEach(m => { if(!p.mods[m]) p.mods[m] = { data: MODULES[m].defaultData(), editedAt:null }; });
   if(pinGanttStart(p) && ROLE === 'owner') p._dirty = true;
   p._norm = {}; p._base = {};
@@ -503,12 +573,12 @@ async function flush(){
   if(flushing){ await flushing; if(!W.projects.some(p => p._dirty) && !W._indexDirty) return; }
   flushing = (async () => {
     await ingestChain;
-    W.projects.forEach(p => { recordHistory(p); recordImageEvents(p); if(driveOn) pruneImages(p); });
+    W.projects.forEach(p => { recordHistory(p); recordImageEvents(p); if(driveOn){ pruneImages(p); pruneFiles(p); } });
     await saveCache();
     if(driveOn){
       syncState = 'saving'; renderStatus();
       try {
-        for(const p of W.projects) if(p._dirty) await Drive.saveProject(p);
+        for(const p of W.projects) if(p._dirty){ await Drive.saveProject(p); scheduleReport(p); }
         if(W._indexDirty){ await Drive.saveIndex(); W._indexDirty = false; }
         syncState = 'saved'; lastSync = nowISO();
         await saveCache();
@@ -573,6 +643,7 @@ async function syncWithDrive(){
     await flush();
     renderAll(true);
     rescuePictures();
+    W.projects.forEach(p => { if(!p.drive || !p.drive.reportId) scheduleReport(p, 8000); });
   } catch(e){ driveError(e); renderAll(false); }
 }
 
@@ -637,6 +708,7 @@ const GanttModule = {
   },
   normalize: d => d ? Object.assign({}, d, { theme: undefined, view: undefined, group: undefined }) : null,
   imageRefs: () => [],
+  fileRefs: d => ((d && d.phases) || []).flatMap(p => (p.files || []).concat(...(p.tasks || []).map(t => t.files || []))).filter(f => f.kind === 'file').map(f => f.id),
   summarize(a, b){
     const phases = d => (d && d.phases) || [];
     const tasks = d => phases(d).flatMap(p => p.tasks || []);
@@ -649,6 +721,9 @@ const GanttModule = {
     const started = tb.filter(t => !t.done && t.status === 'doing' && ta.some(x => x.id === t.id && x.status !== 'doing')).length;
     if(done) parts.push('Completed ' + plural(done, 'task')); if(reop) parts.push('Reopened ' + plural(reop, 'task'));
     if(started) parts.push('Started ' + plural(started, 'task'));
+    const atts = d => phases(d).flatMap(p => (p.files || []).concat(...(p.tasks || []).map(t => t.files || []))).map(f => f.id);
+    const attA = new Set(atts(a)), attB = atts(b), attached = attB.filter(id => !attA.has(id)).length;
+    if(attached) parts.push('Attached ' + plural(attached, 'file'));
     if(!a) return 'Started the schedule';
     if(parts.length) return parts.join(', ');
     const order = (d, inner) => phases(d).map(p => inner ? p.id + ':' + (p.tasks || []).map(t => t.id).join(',') : p.id).join('|');
@@ -961,7 +1036,7 @@ function frameDoc(mod, p){
   const M = MODULES[mod];
   let data = clone(p.mods[mod].data);
   if(data){ data.theme = isDark() ? 'dark' : 'light'; if(M.hydrate) data = M.hydrate(p, data); }
-  return SRC.tpl[mod].split('/*__WS_INIT__*/null').join(safeJSON({ mod, data, dark: isDark(), font: fontStack() }));
+  return SRC.tpl[mod].split('/*__WS_INIT__*/null').join(safeJSON({ mod, data, dark: isDark(), font: fontStack(), readOnly: !canEdit() }));
 }
 function destroyFrames(filter){ frames.forEach((f, k) => { if(!filter || filter(f)){ f.iframe.remove(); frames.delete(k); } }); }
 window.addEventListener('message', e => {
@@ -972,6 +1047,8 @@ window.addEventListener('message', e => {
   if(m.type === 'save'){ if(canEdit()) MODULES[f.mod].ingest(p, m.data); }
   else if(m.type === 'save-shortcut'){ if(canEdit()) flush(); }
   else if(m.type === 'notice') toast(String(m.text || ''), 7000);
+  else if(m.type === 'file-add'){ if(canEdit()) addFiles(p, m.files || []).then(items => postFrame(f, { type:'file-added', reqId: m.reqId, items })); }
+  else if(m.type === 'file-open') openFile(p, m.id);
   else if(m.type === 'img-select'){
     ui.selImg = m.src ? (srcMap(p).get(m.src) || null) : null;
     if(m.src && !ui.selImg) ingestChain.then(() => { ui.selImg = srcMap(p).get(m.src) || null; if(ui.drawer === 'info') renderDrawer(); });
@@ -1089,6 +1166,7 @@ function renderHeader(){
   if(ui.tab === 'moodboard') right.append(el('button', { class:'btn ghost' + (ui.drawer === 'info' ? ' on' : ''), title:'Picture details', onclick(){ toggleDrawer('info'); } }, icon('info'), el('span', { class:'hide-sm', text:'Picture info' })));
   right.append(el('button', { class:'btn ghost' + (ui.drawer === 'history' ? ' on' : ''), title:'Version history', onclick(){ toggleDrawer('history'); } }, icon('clock'), el('span', { class:'hide-sm', text:'History' })));
   if(ed){
+    right.append(el('button', { class:'btn ghost', title:'Status report and slides for Google', onclick(e){ openReports(e.currentTarget, p); } }, icon('report'), el('span', { class:'hide-sm', text:'Progress' })));
     right.append(el('span', { class:'status-slot hide-sm' }, statusChip()));
     right.append(el('button', { class:'btn primary', onclick(){ openShare(p); } }, icon('share'), 'Share'));
   } else {
@@ -1376,6 +1454,345 @@ function openImagePicker(p, cb){
     : el('div', { class:'empty', style:{ height:'auto', padding:'28px 10px' } }, el('strong', { text:'No pictures on the mood board yet' }), el('span', { text:'Upload one, paste a picture address above, or add pictures to the mood board first.' })));
   mdl = modal('Choose a picture', body, { cls:'wide' });
   setTimeout(() => urlIn.focus(), 30);
+}
+
+/* =====================================================================
+   REPORTS · Google Docs status report + Google Slides status deck
+   The report is a Google Doc in the project's Drive folder, rewritten a short while
+   after each change, so Gemini and NotebookLM always read the current state.
+   ===================================================================== */
+const PLAN_DAYS = 14;
+const STATUS_LABEL = { todo:'To do', doing:'In progress', done:'Done' };
+const PRIORITY_LABEL = { h:'High', m:'Medium', l:'Low' };
+const escH = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const fmtD = d => MON[d.getMonth()] + ' ' + d.getDate();
+const fmtLong = d => d.toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+function planOf(p){
+  const g = p.mods.gantt && p.mods.gantt.data;
+  if(!g || !Array.isArray(g.phases)) return null;
+  const start = new Date((g.start || localDay(p.createdAt)) + 'T00:00:00');
+  const day = i => { const d = new Date(start); d.setDate(d.getDate() + i); return d; };
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const ti = Math.round((today - start) / 86400000);
+  const st = t => t.done ? 'done' : t.status === 'doing' ? 'doing' : 'todo';
+  const tasks = g.phases.flatMap(ph => (ph.tasks || []).map(t => ({ t, ph, st: st(t) })));
+  const by = s => tasks.filter(x => x.st === s);
+  const done = by('done').sort((a, b) => String(b.t.doneAt || '').localeCompare(String(a.t.doneAt || '')));
+  const doing = by('doing'), todo = by('todo').sort((a, b) => a.t.start - b.t.start);
+  return {
+    g, start, day, ti, tasks, done, doing, todo,
+    end: day(PLAN_DAYS - 1),
+    overdue: tasks.filter(x => x.st !== 'done' && x.t.end < ti),
+    upNext: todo.filter(x => x.t.start <= ti + 7),
+    nextMilestone: tasks.filter(x => x.t.milestone && x.st !== 'done').sort((a, b) => a.t.start - b.t.start)[0] || null,
+    pct: tasks.length ? Math.round(done.length / tasks.length * 100) : 0,
+    daysLeft: ti < 0 ? PLAN_DAYS : Math.max(0, PLAN_DAYS - ti),
+    span: t => fmtD(day(t.start)) + (t.end > t.start ? ' – ' + fmtD(day(t.end)) : '')
+  };
+}
+function boardPictures(p){
+  return MODULES.moodboard.imageRefs(p.mods.moodboard.data).map(id => p.images[id]).filter(Boolean);
+}
+function scoredOptions(p){
+  const d = p.mods.scope.data; if(!d || !(d.options || []).length) return [];
+  return d.options.map(o => {
+    const vals = (d.criteria || []).map(c => o.ratings && o.ratings[c.id]).filter(v => v > 0);
+    return { o, avg: vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null };
+  }).sort((a, b) => (b.avg || 0) - (a.avg || 0));
+}
+// Keeps simple formatting from a note; drops anything else.
+function noteToHTML(html){
+  const doc = new DOMParser().parseFromString('<div>' + (html || '') + '</div>', 'text/html');
+  const ok = new Set(['P','BR','B','STRONG','I','EM','U','UL','OL','LI','H1','H2','H3','BLOCKQUOTE','A','DIV','SPAN']);
+  const walk = n => [...n.childNodes].map(c => {
+    if(c.nodeType === 3) return escH(c.textContent);
+    if(c.nodeType !== 1) return '';
+    const inner = walk(c), tag = c.tagName;
+    if(!ok.has(tag)) return inner;
+    if(tag === 'A'){ const h = c.getAttribute('href') || ''; return /^https?:/i.test(h) ? `<a href="${escH(h)}">${inner}</a>` : inner; }
+    if(tag === 'DIV' || tag === 'SPAN') return tag === 'DIV' ? `<p>${inner}</p>` : inner;
+    const t = tag === 'H1' || tag === 'H2' ? 'h3' : tag.toLowerCase();
+    return t === 'br' ? '<br>' : `<${t}>${inner}</${t}>`;
+  }).join('');
+  return walk(doc.body.firstChild);
+}
+function thumbnail(src, max){
+  return new Promise(res => {
+    if(!src || !/^data:image\//.test(src)) return res(null);
+    const im = new Image();
+    im.onload = () => {
+      const s = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
+      const cv = document.createElement('canvas'); cv.width = Math.round(im.naturalWidth * s); cv.height = Math.round(im.naturalHeight * s);
+      const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(im, 0, 0, cv.width, cv.height);
+      res({ data: cv.toDataURL('image/jpeg', 0.82), w: cv.width, h: cv.height });
+    };
+    im.onerror = () => res(null);
+    im.src = src;
+  });
+}
+function attachmentLinks(p, list){
+  return (list || []).map(f => {
+    if(f.kind === 'link') return `<a href="${escH(f.url)}">${escH(f.name)}</a>`;
+    const m = p.files && p.files[f.id];
+    return m && m.driveId ? `<a href="https://drive.google.com/file/d/${escH(m.driveId)}/view">${escH(f.name)}</a>` : escH(f.name);
+  }).join(', ');
+}
+async function reportHTML(p){
+  const P = planOf(p), now = new Date(), out = [];
+  const h2 = t => out.push(`<h2 style="font-size:16pt;margin-top:18pt">${escH(t)}</h2>`);
+  const li = x => `<li><b>${escH(x.t.name)}</b> <span style="color:#7D7A75">· ${escH(x.ph.name)} · ${escH(P.span(x.t))}${x.t.priority === 'h' ? ' · High priority' : ''}</span>${x.t.note ? '<br>' + escH(x.t.note).replace(/\n/g, '<br>') : ''}</li>`;
+  out.push(`<h1 style="font-size:24pt">${escH(p.name || 'Untitled project')} — Status report</h1>`);
+  out.push(`<p style="color:#7D7A75">Updated ${escH(fmtLong(now))} at ${escH(now.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }))}. This document is kept up to date automatically by Anium.planning. Use it with Gemini or NotebookLM to write status updates and presentations.</p>`);
+  if(P){
+    h2('Summary');
+    out.push('<ul>' + [
+      `Plan: ${fmtD(P.start)} – ${fmtD(P.end)} (${P.daysLeft} day${P.daysLeft === 1 ? '' : 's'} left)`,
+      `Progress: ${P.done.length} of ${P.tasks.length} tasks done (${P.pct}%), ${P.doing.length} in progress`,
+      P.nextMilestone ? `Next milestone: ${escH(P.nextMilestone.t.name)} on ${fmtD(P.day(P.nextMilestone.t.start))}` : '',
+      P.overdue.length ? `Behind schedule: ${P.overdue.length} task${P.overdue.length === 1 ? '' : 's'} past their end date` : 'On schedule: no tasks are past their end date'
+    ].filter(Boolean).map(s => `<li>${s}</li>`).join('') + '</ul>');
+    h2('In progress');
+    out.push(P.doing.length ? '<ul>' + P.doing.map(li).join('') + '</ul>' : '<p>Nothing is marked in progress.</p>');
+    h2('Coming up (next 7 days)');
+    out.push(P.upNext.length ? '<ul>' + P.upNext.map(li).join('') + '</ul>' : '<p>Nothing scheduled to start in the next week.</p>');
+    if(P.overdue.length){ h2('Needs attention'); out.push('<ul>' + P.overdue.map(li).join('') + '</ul>'); }
+    h2('Completed');
+    out.push(P.done.length ? '<ul>' + P.done.map(x => `<li>${escH(x.t.name)} <span style="color:#7D7A75">· ${escH(x.ph.name)}${x.t.doneAt ? ' · done ' + escH(fmtD(new Date(x.t.doneAt))) : ''}</span></li>`).join('') + '</ul>' : '<p>No tasks completed yet.</p>');
+    h2('Plan by phase');
+    P.g.phases.forEach(ph => {
+      const tasks = ph.tasks || [], dn = tasks.filter(t => t.done).length;
+      out.push(`<h3 style="font-size:13pt;color:${escH(ph.color || '#2C2C2B')}">${escH(ph.name)} <span style="color:#7D7A75;font-weight:normal">— ${dn}/${tasks.length} done${tasks.length ? ', ' + escH(fmtD(P.day(Math.min(...tasks.map(t => t.start))))) + ' – ' + escH(fmtD(P.day(Math.max(...tasks.map(t => t.end))))) : ''}</span></h3>`);
+      if(ph.note) out.push(`<p>${escH(ph.note).replace(/\n/g, '<br>')}</p>`);
+      if((ph.files || []).length) out.push(`<p>Attachments: ${attachmentLinks(p, ph.files)}</p>`);
+      if(tasks.length){
+        out.push('<table style="border-collapse:collapse;width:100%"><tr>' + ['Task', 'Status', 'Dates', 'Priority', 'Details', 'Attachments'].map(c => `<th style="border:1px solid #ccc;padding:4px;background:#f3f3f3;text-align:left">${c}</th>`).join('') + '</tr>' +
+          tasks.map(t => '<tr>' + [escH(t.name) + (t.milestone ? ' (milestone)' : ''), STATUS_LABEL[t.done ? 'done' : t.status === 'doing' ? 'doing' : 'todo'], escH(P.span(t)), PRIORITY_LABEL[t.priority] || '', escH(t.note || '').replace(/\n/g, '<br>'), attachmentLinks(p, t.files)].map(v => `<td style="border:1px solid #ccc;padding:4px;vertical-align:top">${v}</td>`).join('') + '</tr>').join('') + '</table>');
+      }
+    });
+  } else {
+    h2('Schedule'); out.push('<p>No schedule yet. Open the Gantt tab to start one.</p>');
+  }
+  const opts = scoredOptions(p);
+  if(opts.length){
+    h2('Design options (Narrow scope)');
+    out.push('<ol>' + opts.map(({ o, avg }) => `<li><b>${escH(o.title || 'Untitled option')}</b>${avg != null ? ` — average rating ${avg.toFixed(1)} / 5` : ''}${o.notes ? '<br>' + escH(o.notes).replace(/\n/g, '<br>') : ''}</li>`).join('') + '</ol>');
+  }
+  const pics = boardPictures(p);
+  if(pics.length){
+    h2('Mood board');
+    out.push(`<p>${pics.length} picture${pics.length === 1 ? '' : 's'} on the board.</p>`);
+    const thumbs = await Promise.all(pics.slice(0, 12).map(im => thumbnail(im.src, 360)));
+    pics.slice(0, 12).forEach((im, i) => {
+      const t = thumbs[i], link = im.driveId ? `https://drive.google.com/file/d/${im.driveId}/view` : im.url;
+      if(t) out.push(`<p><img src="${t.data}" width="${t.w}" height="${t.h}" alt="${escH(im.caption || 'Mood board picture')}"></p>`);
+      const cap = [im.caption ? escH(im.caption) : '', link ? `<a href="${escH(link)}">Open picture</a>` : ''].filter(Boolean).join(' · ');
+      if(cap) out.push(`<p style="color:#7D7A75">${cap}</p>`);
+    });
+  }
+  const notes = (p.mods.notes.data && p.mods.notes.data.notes) || [];
+  if(notes.length){
+    h2('Notes');
+    notes.forEach(n => { out.push(`<h3 style="font-size:13pt">${escH(n.title || 'Untitled note')}</h3>`); out.push(noteToHTML(n.html)); });
+  }
+  return '<!doctype html><html><head><meta charset="utf-8"></head><body style="font-family:Arial,sans-serif">' + out.join('\n') + '</body></html>';
+}
+const reportTimers = {};
+function scheduleReport(p, ms){
+  if(!driveOn || ROLE !== 'owner') return;
+  clearTimeout(reportTimers[p.id]);
+  reportTimers[p.id] = setTimeout(() => { delete reportTimers[p.id]; refreshReport(p).catch(e => console.warn('Status report', e)); }, ms == null ? 20000 : ms);
+}
+async function refreshReport(p){
+  if(!driveOn) return null;
+  if(!p.drive || !p.drive.folderId) await flush();
+  if(!p.drive || !p.drive.folderId) return null;
+  const name = (p.name || 'Untitled project') + ' — Status report';
+  const blob = new Blob([await reportHTML(p)], { type:'text/html' });
+  if(p.drive.reportId){
+    try {
+      await Drive.update(p.drive.reportId, blob);
+      if(p.drive.reportName !== name){ await Drive.json('PATCH', '/files/' + p.drive.reportId + '?fields=id', { name }); p.drive.reportName = name; p._dirty = true; scheduleFlush(); }
+      return p.drive.reportId;
+    } catch(e){ if(!(e && e.status === 404)) throw e; p.drive.reportId = null; }
+  }
+  const r = await Drive.upload({ name, mimeType:'application/vnd.google-apps.document', parents:[p.drive.folderId], appProperties:{ dwReport: p.id } }, blob);
+  p.drive.reportId = r.id; p.drive.reportName = name; p._dirty = true; scheduleFlush();
+  return r.id;
+}
+// Opens a tab straight away (so the browser allows it), then points it at the result.
+async function openWhenReady(label, work){
+  const w = window.open('', '_blank');
+  if(w) w.document.write('<title>' + label + '</title><p style="font:15px system-ui;padding:24px;color:#555">' + label + '…</p>');
+  try {
+    const url = await work();
+    if(!url){ if(w) w.close(); return; }
+    if(w) w.location.href = url; else window.open(url, '_blank', 'noopener');
+  } catch(e){
+    if(w) w.close();
+    toast(e && e.code === 'auth' ? 'Google sign-in expired. Reconnect Drive and try again.' : 'Couldn’t reach Google Drive. Check your connection and try again.', 6000);
+    if(e && e.code === 'auth') driveError(e);
+  }
+}
+function openStatusReport(p){
+  openWhenReady('Opening the status report', async () => { const id = await refreshReport(p); return id && 'https://docs.google.com/document/d/' + id + '/edit'; });
+}
+
+/* --- Status slides (built as PowerPoint in the browser, converted to Google Slides by Drive) --- */
+const PPTX_TYPE = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+let pptxLib = null;
+function loadPptx(){
+  return pptxLib || (pptxLib = new Promise((res, rej) => {
+    const s = el('script', { src:'/vendor/pptxgen.bundle.js' });
+    s.onload = () => window.PptxGenJS ? res(window.PptxGenJS) : rej(new Error('pptx'));
+    s.onerror = () => { pptxLib = null; rej(new Error('pptx')); };
+    document.head.append(s);
+  }));
+}
+async function buildDeck(p){
+  const PptxGenJS = await loadPptx();
+  if(ROLE === 'owner' && driveOn){ try { await ensureImages(p); } catch(e){} }
+  const P = planOf(p), today = new Date();
+  const pptx = new PptxGenJS(); pptx.layout = 'LAYOUT_WIDE'; pptx.title = (p.name || 'Project') + ' — Status update';
+  const C = { ink:'2C2C2B', muted:'7D7A75', line:'E6E5E3', soft:'F4F3F1', acc:'2783DE', ok:'46A171', warn:'D5803B', bad:'E56458' }, F = 'Arial', W = 13.333;
+  const hex = c => String(c || '#2783DE').replace('#', '').slice(0, 6).toUpperCase();
+  pptx.defineSlideMaster({ title:'BODY', background:{ color:'FFFFFF' },
+    objects:[ { rect:{ x:0, y:7.12, w:W, h:0.38, fill:{ color:C.soft } } }, { text:{ text:(p.name || 'Project') + '  ·  Status update ' + fmtD(today), options:{ x:0.5, y:7.16, w:9, h:0.3, fontSize:9, color:C.muted, fontFace:F } } } ],
+    slideNumber:{ x:12.2, y:7.16, w:0.7, h:0.3, fontSize:9, color:C.muted, fontFace:F } });
+  const head = (s, t, sub) => { s.addText(t, { x:0.5, y:0.32, w:W - 1, h:0.62, fontSize:26, bold:true, color:C.ink, fontFace:F }); if(sub) s.addText(sub, { x:0.5, y:0.92, w:W - 1, h:0.36, fontSize:13, color:C.muted, fontFace:F }); };
+  const dot = (s, x, y, color) => s.addShape(pptx.ShapeType.ellipse, { x, y, w:0.14, h:0.14, fill:{ color:hex(color) }, line:{ color:hex(color) } });
+  // A list of tasks, continuing onto more slides when long
+  const taskSlides = (titleText, items, empty, extra) => {
+    const per = 6;
+    for(let i = 0; i < Math.max(1, items.length); i += per){
+      const s = pptx.addSlide({ masterName:'BODY' });
+      head(s, titleText + (i ? ' (continued)' : ''), items.length ? items.length + ' task' + (items.length === 1 ? '' : 's') : null);
+      if(!items.length){ s.addText(empty, { x:0.5, y:1.6, w:W - 1, h:0.5, fontSize:16, color:C.muted, fontFace:F }); return; }
+      items.slice(i, i + per).forEach((x, k) => {
+        const y = 1.55 + k * 0.9;
+        dot(s, 0.55, y + 0.12, x.ph.color);
+        s.addText(x.t.name + (x.t.milestone ? '  ◆' : ''), { x:0.85, y, w:7.6, h:0.36, fontSize:16, bold:true, color:C.ink, fontFace:F });
+        s.addText([x.ph.name, P.span(x.t), extra ? extra(x) : (x.t.priority === 'h' ? 'High priority' : '')].filter(Boolean).join('   ·   '), { x:8.6, y, w:4.2, h:0.36, fontSize:11, color:C.muted, align:'right', fontFace:F });
+        if(x.t.note) s.addText(x.t.note.replace(/\s+/g, ' ').slice(0, 180) + (x.t.note.length > 180 ? '…' : ''), { x:0.85, y:y + 0.36, w:W - 1.5, h:0.4, fontSize:12, color:C.muted, fontFace:F });
+      });
+    }
+  };
+  // 1. Title
+  let s = pptx.addSlide();
+  s.addShape(pptx.ShapeType.rect, { x:0, y:0, w:0.2, h:7.5, fill:{ color:C.acc }, line:{ color:C.acc } });
+  s.addText(p.name || 'Project', { x:0.9, y:2.2, w:11.6, h:1.3, fontSize:44, bold:true, color:C.ink, fontFace:F });
+  s.addText('Status update · ' + fmtLong(today), { x:0.9, y:3.5, w:11.6, h:0.6, fontSize:20, color:C.muted, fontFace:F });
+  if(P) s.addText(`2-week plan: ${fmtD(P.start)} – ${fmtD(P.end)}   ·   ${P.pct}% complete   ·   ${P.daysLeft} day${P.daysLeft === 1 ? '' : 's'} left`, { x:0.9, y:4.2, w:11.6, h:0.5, fontSize:14, color:C.muted, fontFace:F });
+  if(P){
+    // 2. At a glance
+    s = pptx.addSlide({ masterName:'BODY' }); head(s, 'At a glance', fmtD(P.start) + ' – ' + fmtD(P.end));
+    [[P.pct + '%', 'Complete', C.warn], [P.done.length + ' / ' + P.tasks.length, 'Tasks done', C.ok], [String(P.doing.length), 'In progress', C.acc], [String(P.daysLeft), 'Days left', C.ink]].forEach(([v, l, c], i) => {
+      const x = 0.5 + i * 3.1;
+      s.addShape(pptx.ShapeType.roundRect, { x, y:1.6, w:2.9, h:1.7, fill:{ color:C.soft }, line:{ color:C.line }, rectRadius:0.12 });
+      s.addText(v, { x, y:1.8, w:2.9, h:0.85, fontSize:40, bold:true, color:c, align:'center', fontFace:F });
+      s.addText(l.toUpperCase(), { x, y:2.65, w:2.9, h:0.4, fontSize:11, color:C.muted, align:'center', charSpacing:2, fontFace:F });
+    });
+    s.addShape(pptx.ShapeType.roundRect, { x:0.5, y:3.75, w:12.3, h:0.24, fill:{ color:C.soft }, line:{ color:C.line }, rectRadius:0.1 });
+    if(P.pct) s.addShape(pptx.ShapeType.roundRect, { x:0.5, y:3.75, w:Math.max(0.24, 12.3 * P.pct / 100), h:0.24, fill:{ color:C.ok }, line:{ color:C.ok }, rectRadius:0.1 });
+    const bullets = [
+      P.nextMilestone ? `Next milestone: ${P.nextMilestone.t.name} — ${fmtD(P.day(P.nextMilestone.t.start))}` : null,
+      P.overdue.length ? `${P.overdue.length} task${P.overdue.length === 1 ? ' is' : 's are'} past the planned end date` : 'On schedule — nothing is past its end date',
+      P.upNext.length ? `${P.upNext.length} task${P.upNext.length === 1 ? '' : 's'} starting in the next 7 days` : null
+    ].filter(Boolean);
+    s.addText(bullets.map(t => ({ text:t, options:{ bullet:true } })), { x:0.5, y:4.3, w:12.3, h:2.4, fontSize:16, color:C.ink, fontFace:F, valign:'top', paraSpaceAfter:8 });
+    // 3. Phases
+    s = pptx.addSlide({ masterName:'BODY' }); head(s, 'Progress by phase');
+    const phases = P.g.phases.slice(0, 8), rowH = Math.min(0.68, 5.2 / Math.max(1, phases.length));
+    phases.forEach((ph, i) => {
+      const tasks = ph.tasks || [], dn = tasks.filter(t => t.done).length, y = 1.5 + i * rowH, ratio = tasks.length ? dn / tasks.length : 0;
+      dot(s, 0.55, y + 0.14, ph.color);
+      s.addText(ph.name, { x:0.85, y, w:4.3, h:0.4, fontSize:15, bold:true, color:C.ink, fontFace:F });
+      s.addShape(pptx.ShapeType.roundRect, { x:5.3, y:y + 0.1, w:5, h:0.2, fill:{ color:C.soft }, line:{ color:C.line }, rectRadius:0.08 });
+      if(ratio) s.addShape(pptx.ShapeType.roundRect, { x:5.3, y:y + 0.1, w:Math.max(0.2, 5 * ratio), h:0.2, fill:{ color:hex(ph.color) }, line:{ color:hex(ph.color) }, rectRadius:0.08 });
+      const sp = tasks.length ? fmtD(P.day(Math.min(...tasks.map(t => t.start)))) + ' – ' + fmtD(P.day(Math.max(...tasks.map(t => t.end)))) : 'No tasks';
+      s.addText(`${dn}/${tasks.length}   ·   ${sp}`, { x:10.4, y, w:2.45, h:0.4, fontSize:11, color:C.muted, align:'right', fontFace:F });
+    });
+    // 4. Timeline
+    s = pptx.addSlide({ masterName:'BODY' }); head(s, 'Timeline');
+    const rows = [];
+    P.g.phases.forEach(ph => { rows.push({ ph }); (ph.tasks || []).forEach(t => rows.push({ ph, t })); });
+    const showTasks = rows.length <= 20, list = showTasks ? rows : rows.filter(r => !r.t);
+    const gx = 3.6, gw = W - 0.5 - gx, dw = gw / PLAN_DAYS, gy = 1.75, rh = Math.min(0.32, 4.9 / Math.max(1, list.length));
+    for(let i = 0; i < PLAN_DAYS; i++){
+      const d = P.day(i), wk = d.getDay() === 0 || d.getDay() === 6;
+      if(wk) s.addShape(pptx.ShapeType.rect, { x:gx + i * dw, y:gy - 0.05, w:dw, h:rh * list.length + 0.1, fill:{ color:'FAF9F7' }, line:{ color:'FAF9F7' } });
+      s.addText(String(d.getDate()), { x:gx + i * dw, y:1.35, w:dw, h:0.35, fontSize:10, color:i === P.ti ? C.acc : C.muted, bold:i === P.ti, align:'center', fontFace:F });
+    }
+    list.forEach((r, i) => {
+      const y = gy + i * rh, tasks = r.t ? [r.t] : (r.ph.tasks || []);
+      s.addText(r.t ? r.t.name : r.ph.name, { x:0.5, y, w:gx - 0.6, h:rh, fontSize:r.t ? 9.5 : 10, bold:!r.t, color:r.t ? C.ink : hex(r.ph.color), fontFace:F, valign:'middle' });
+      if(!tasks.length) return;
+      const a = r.t ? r.t.start : Math.min(...tasks.map(t => t.start)), b = r.t ? r.t.end : Math.max(...tasks.map(t => t.end));
+      if(r.t && r.t.milestone) s.addShape(pptx.ShapeType.diamond, { x:gx + a * dw + dw / 2 - rh * 0.3, y:y + rh * 0.2, w:rh * 0.6, h:rh * 0.6, fill:{ color:hex(r.ph.color) }, line:{ color:hex(r.ph.color) } });
+      else s.addShape(pptx.ShapeType.roundRect, { x:gx + a * dw + 0.02, y:y + rh * (r.t ? 0.2 : 0.15), w:(b - a + 1) * dw - 0.04, h:rh * (r.t ? 0.6 : 0.7), fill:{ color:hex(r.ph.color), transparency:r.t ? (r.t.done ? 55 : 0) : 75 }, line:{ color:hex(r.ph.color), transparency:r.t ? 0 : 75 }, rectRadius:0.05 });
+    });
+    if(P.ti >= 0 && P.ti < PLAN_DAYS) s.addShape(pptx.ShapeType.line, { x:gx + P.ti * dw + dw / 2, y:gy - 0.05, w:0, h:rh * list.length + 0.1, line:{ color:C.acc, width:1.5 } });
+    if(!showTasks) s.addText('Showing phases only (' + P.tasks.length + ' tasks). The status report has every task.', { x:0.5, y:6.7, w:W - 1, h:0.3, fontSize:10, color:C.muted, fontFace:F });
+    // 5–8. Task lists
+    taskSlides('In progress', P.doing, 'Nothing is marked in progress yet.');
+    taskSlides('Completed', P.done, 'No tasks completed yet.', x => x.t.doneAt ? 'Done ' + fmtD(new Date(x.t.doneAt)) : 'Done');
+    taskSlides('Coming up — next 7 days', P.upNext, 'Nothing scheduled to start in the next week.');
+    if(P.overdue.length) taskSlides('Needs attention', P.overdue, '', x => 'Planned end ' + fmtD(P.day(x.t.end)));
+  }
+  // 9. Mood board
+  const pics = boardPictures(p).filter(im => im.src).slice(0, 6);
+  if(pics.length){
+    s = pptx.addSlide({ masterName:'BODY' }); head(s, 'Mood board', boardPictures(p).length + ' picture' + (boardPictures(p).length === 1 ? '' : 's'));
+    const thumbs = await Promise.all(pics.map(im => thumbnail(im.src, 900)));
+    const cols = pics.length <= 2 ? pics.length : 3, cw = (W - 1 - (cols - 1) * 0.3) / cols, ch = pics.length <= 3 ? 4.6 : 2.45;
+    thumbs.forEach((t, i) => {
+      if(!t) return;
+      const cx = 0.5 + (i % cols) * (cw + 0.3), cy = 1.5 + Math.floor(i / cols) * (ch + 0.25), sc = Math.min(cw / t.w, ch / t.h);
+      s.addImage({ data:t.data.replace(/^data:/, ''), x:cx + (cw - t.w * sc) / 2, y:cy + (ch - t.h * sc) / 2, w:t.w * sc, h:t.h * sc });
+    });
+  }
+  // 10. Options
+  const opts = scoredOptions(p);
+  if(opts.length){
+    s = pptx.addSlide({ masterName:'BODY' }); head(s, 'Design options', 'Ranked by average rating');
+    opts.slice(0, 6).forEach(({ o, avg }, i) => {
+      const y = 1.55 + i * 0.85;
+      s.addText((i + 1) + '.  ' + (o.title || 'Untitled option'), { x:0.5, y, w:8.5, h:0.4, fontSize:17, bold:true, color:C.ink, fontFace:F });
+      s.addText(avg != null ? avg.toFixed(1) + ' / 5' : 'Not rated', { x:10.3, y, w:2.5, h:0.4, fontSize:15, color:avg != null ? C.acc : C.muted, align:'right', fontFace:F });
+      if(o.notes) s.addText(o.notes.replace(/\s+/g, ' ').slice(0, 150), { x:0.9, y:y + 0.38, w:11.9, h:0.36, fontSize:12, color:C.muted, fontFace:F });
+    });
+  }
+  return pptx.write({ outputType:'blob' });
+}
+async function makeSlides(p){
+  const name = (p.name || 'Project') + ' — Status update ' + localDay(nowISO());
+  if(!driveOn){
+    const blob = await buildDeck(p), a = el('a', { href: URL.createObjectURL(blob), download: name + '.pptx' });
+    document.body.append(a); a.click(); a.remove();
+    toast('Downloaded. Open Google Slides → File → Import slides to use it there.', 7000);
+    return;
+  }
+  openWhenReady('Building your status slides', async () => {
+    if(!p.drive || !p.drive.folderId) await flush();
+    const blob = new Blob([await buildDeck(p)], { type: PPTX_TYPE });
+    const r = await Drive.uploadLarge({ name, mimeType:'application/vnd.google-apps.presentation', parents:[p.drive.folderId] }, blob);
+    toast('Status slides saved to the project’s Drive folder.', 5000);
+    return 'https://docs.google.com/presentation/d/' + r.id + '/edit';
+  });
+}
+function openReports(anchor, p){
+  const item = (title, text, btn) => el('div', { class:'rep-item' }, el('div', { class:'rep-tx' }, el('strong', { text:title }), el('span', { text }) ), btn);
+  const body = el('div', { class:'rep-pop' }, el('div', { class:'rep-h', text:'Progress for Google' }));
+  if(driveOn){
+    body.append(
+      item('Status report · Google Docs', 'Kept up to date in this project’s Drive folder. Gemini and NotebookLM can read it.', el('button', { class:'btn', onclick(){ closePop(); openStatusReport(p); } }, 'Open')),
+      item('Status slides · Google Slides', 'A fresh deck from today’s progress: overview, phases, timeline, what’s in progress, done and next, mood board, options.', el('button', { class:'btn primary', onclick(){ closePop(); makeSlides(p); } }, 'Make slides')),
+      el('div', { class:'rep-tip', text:'Tip: in Google Slides, ask Gemini to restyle or add to the deck. In Gemini or NotebookLM, add the status report and ask “Write a status update for my boss.”' }));
+  } else {
+    body.append(
+      el('div', { class:'rep-tip', text:'Connect Google Drive to keep a live status report in Google Docs and turn your progress into Google Slides.' }),
+      el('div', { class:'rep-row' }, el('button', { class:'btn primary', onclick(){ closePop(); connectDrive(); } }, icon('drive'), 'Connect Google Drive'), el('button', { class:'btn', onclick(){ closePop(); makeSlides(p).catch(() => toast('Couldn’t build the slides. Try again.', 4000)); } }, 'Download slides')));
+  }
+  popover(anchor, body);
 }
 
 /* =====================================================================
