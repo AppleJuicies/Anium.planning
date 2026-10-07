@@ -629,20 +629,32 @@ const MoodboardModule = {
 const GanttModule = {
   label:'Gantt', icon:'gantt', frame:true,
   defaultData: () => null,
-  ingest(p, raw){ setModData(p.id, 'gantt', raw); },
-  normalize: d => d ? Object.assign({}, d, { theme: undefined }) : null,
+  ingest(p, raw){
+    const was = p.mods.gantt.data;
+    setModData(p.id, 'gantt', raw);
+    // Switching between timeline and board isn't an edit, but it's saved so the plan reopens the same way.
+    if(raw && (!was || was.view !== raw.view || was.group !== raw.group)) markChanged(p);
+  },
+  normalize: d => d ? Object.assign({}, d, { theme: undefined, view: undefined, group: undefined }) : null,
   imageRefs: () => [],
   summarize(a, b){
-    const tasks = d => ((d && d.phases) || []).flatMap(p => p.tasks || []);
+    const phases = d => (d && d.phases) || [];
+    const tasks = d => phases(d).flatMap(p => p.tasks || []);
     const ta = tasks(a), tb = tasks(b), ids = new Set(ta.map(t => t.id)), idsB = new Set(tb.map(t => t.id));
     const parts = [];
     const added = tb.filter(t => !ids.has(t.id)).length, removed = ta.filter(t => !idsB.has(t.id)).length;
     if(added) parts.push('Added ' + plural(added, 'task')); if(removed) parts.push('Removed ' + plural(removed, 'task'));
     const done = tb.filter(t => t.done && ta.some(x => x.id === t.id && !x.done)).length;
     const reop = tb.filter(t => !t.done && ta.some(x => x.id === t.id && x.done)).length;
+    const started = tb.filter(t => !t.done && t.status === 'doing' && ta.some(x => x.id === t.id && x.status !== 'doing')).length;
     if(done) parts.push('Completed ' + plural(done, 'task')); if(reop) parts.push('Reopened ' + plural(reop, 'task'));
+    if(started) parts.push('Started ' + plural(started, 'task'));
     if(!a) return 'Started the schedule';
-    return parts.length ? parts.join(', ') : 'Adjusted dates or details';
+    if(parts.length) return parts.join(', ');
+    const order = (d, inner) => phases(d).map(p => inner ? p.id + ':' + (p.tasks || []).map(t => t.id).join(',') : p.id).join('|');
+    if(order(a) !== order(b)) return 'Reordered phases';
+    if(order(a, true) !== order(b, true)) return 'Reordered tasks';
+    return 'Adjusted dates or details';
   }
 };
 
