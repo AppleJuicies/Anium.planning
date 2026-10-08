@@ -3,13 +3,12 @@ import { SESSION, SESSION_AGE, STATE, callbackURL, clearCookie, cookie, googleTo
 
 export async function GET(request){
   const url = new URL(request.url);
-  const [saved, next] = (readCookies(request)[STATE] || '').split('.');
-  const home = new URL(next === 'projects' ? '/projects.html' : '/', url).href;
+  const home = new URL('/', url).href;
   const back = (problem, cookies = []) => reply(302, { location: problem ? home + '?auth=' + problem : home, cookies: [clearCookie(STATE), ...cookies] });
 
   if(url.searchParams.get('error')) return back('cancelled');
   const state = url.searchParams.get('state'), code = url.searchParams.get('code');
-  if(!code || !state || state !== saved) return back('failed');
+  if(!code || !state || state !== readCookies(request)[STATE]) return back('failed');
 
   const t = await googleToken({ code, grant_type: 'authorization_code', redirect_uri: callbackURL(request) });
   if(!t.refresh_token){ console.error('auth callback: no refresh token', t.error || 'missing'); return back('failed'); }

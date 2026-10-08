@@ -111,8 +111,6 @@ img{max-width:100%}
 .tabs::-webkit-scrollbar{display:none}
 .tab{border:0;background:transparent;padding:7px 10px 8px;font-size:13.5px;color:var(--muted);display:flex;align-items:center;gap:7px;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;border-radius:6px 6px 0 0}
 .tab:hover{color:var(--txt);background:var(--hover)}
-a.tab{text-decoration:none}
-.tab-sep{width:1px;background:var(--bdr);margin:8px 6px;flex-shrink:0}
 .tab.on{color:var(--txt);border-bottom-color:var(--txt);font-weight:500}
 .tab svg{width:15px;height:15px}
 .tab .dirty{width:6px;height:6px;border-radius:50%;background:var(--warn)}

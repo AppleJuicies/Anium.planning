@@ -4,8 +4,6 @@ import { SCOPE, STATE, callbackURL, cookie, reply } from '../_session.js';
 
 export function GET(request){
   const state = randomBytes(16).toString('base64url');
-  // Where to come back to afterwards: the planner (/) or the projects page
-  const next = new URL(request.url).searchParams.get('next') === 'projects' ? 'projects' : '';
   const q = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID,
     redirect_uri: callbackURL(request),
@@ -16,5 +14,5 @@ export function GET(request){
     include_granted_scopes: 'true',
     state
   });
-  return reply(302, { location: 'https://accounts.google.com/o/oauth2/v2/auth?' + q, cookies: [cookie(STATE, next ? state + '.' + next : state, 600)] });
+  return reply(302, { location: 'https://accounts.google.com/o/oauth2/v2/auth?' + q, cookies: [cookie(STATE, state, 600)] });
 }

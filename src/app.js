@@ -38,8 +38,6 @@ function el(tag, props, ...kids){
 const NS = 'http://www.w3.org/2000/svg';
 function svgEl(tag, attrs){ const e = document.createElementNS(NS, tag); for(const k in attrs) e.setAttribute(k, attrs[k]); return e; }
 const ICON = {
-  day:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.8v2.4M10.5 1.8v2.4M4.5 9h4M4.5 11.5h6"/></svg>',
-  log:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2.5 4.2l1.2 1.2 2.1-2.4M2.5 9.2l1.2 1.2 2.1-2.4M8 4.5h5.5M8 9.5h5.5M3 13.5h10.5"/></svg>',
   report:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="2" y="2.5" width="12" height="9" rx="1.2"/><path d="M5 9V7.2M8 9V5.2M11 9V6.4M6 14h4"/></svg>',
   menu:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg>',
   board:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2" width="5" height="7" rx="1"/><rect x="9" y="2" width="5" height="4" rx="1"/><rect x="2" y="11" width="5" height="3" rx="1"/><rect x="9" y="8" width="5" height="6" rx="1"/></svg>',
@@ -140,9 +138,6 @@ const VIEW_ID = new URLSearchParams(location.search).get('p');
 const ROLE = EMBED ? 'offline' : VIEW_ID ? 'viewer' : 'owner';
 const canEdit = () => ROLE === 'owner';
 const TAB_IDS = ['moodboard', 'scope', 'gantt', 'notes'];
-// Tabs shown for a project. A project's schedule now lives on the planner's Timeline (index.html), so its Gantt tab is hidden;
-// its data is kept as it was.
-const SHOW_TABS = ['moodboard', 'scope', 'notes'];
 let W = null;
 
 function buildOfflineDoc(p){
@@ -223,7 +218,7 @@ const AUTH = '/api/auth/';
 const Drive = {
   token: null, exp: 0, rootId: null, indexId: null, refreshing: null,
   ok(){ return !!this.token && Date.now() < this.exp; },
-  connect(){ location.assign(AUTH + 'start?next=projects'); return new Promise(() => {}); },
+  connect(){ location.assign(AUTH + 'start'); return new Promise(() => {}); },
   refresh(){
     if(!this.refreshing) this.refreshing = (async () => {
       let r;
@@ -1184,12 +1179,7 @@ function renderHeader(){
 function renderTabs(){
   if(!shell.tabs) return;
   const t = shell.tabs; t.textContent = '';
-  // The planner's views live on the main page
-  if(ROLE === 'owner'){
-    [['day', 'Day', 'day'], ['log', 'Past days', 'log'], ['timeline', 'Timeline', 'gantt']].forEach(([k, l, ic]) => t.append(el('a', { class:'tab', href:'/#' + k }, icon(ic), l)));
-    t.append(el('span', { class:'tab-sep', 'aria-hidden':'true' }));
-  }
-  SHOW_TABS.forEach(id => {
+  TAB_IDS.forEach(id => {
     const M = MODULES[id];
     t.append(el('button', { class:'tab' + (ui.tab === id ? ' on' : ''), 'aria-current': ui.tab === id ? 'page' : null, onclick(){ openTab(id); } }, icon(M.icon), M.label));
   });
@@ -1548,7 +1538,7 @@ function attachmentLinks(p, list){
   }).join(', ');
 }
 async function reportHTML(p){
-  const P = null, now = new Date(), out = [];   // the schedule lives on the planner's Timeline now
+  const P = planOf(p), now = new Date(), out = [];
   const h2 = t => out.push(`<h2 style="font-size:16pt;margin-top:18pt">${escH(t)}</h2>`);
   const li = x => `<li><b>${escH(x.t.name)}</b> <span style="color:#7D7A75">· ${escH(x.ph.name)} · ${escH(P.span(x.t))}${x.t.priority === 'h' ? ' · High priority' : ''}</span>${x.t.note ? '<br>' + escH(x.t.note).replace(/\n/g, '<br>') : ''}</li>`;
   out.push(`<h1 style="font-size:24pt">${escH(p.name || 'Untitled project')} — Status report</h1>`);
@@ -1580,7 +1570,7 @@ async function reportHTML(p){
       }
     });
   } else {
-    h2('Schedule'); out.push(`<p>The schedule and day-by-day progress are on the Timeline in Anium.planning: <a href="${escH(location.origin)}/#timeline">open the Timeline</a>. Its Progress button makes a status report of the work itself.</p>`);
+    h2('Schedule'); out.push('<p>No schedule yet. Open the Gantt tab to start one.</p>');
   }
   const opts = scoredOptions(p);
   if(opts.length){
@@ -1661,7 +1651,7 @@ function loadPptx(){
 async function buildDeck(p){
   const PptxGenJS = await loadPptx();
   if(ROLE === 'owner' && driveOn){ try { await ensureImages(p); } catch(e){} }
-  const P = null, today = new Date();   // the schedule lives on the planner's Timeline now
+  const P = planOf(p), today = new Date();
   const pptx = new PptxGenJS(); pptx.layout = 'LAYOUT_WIDE'; pptx.title = (p.name || 'Project') + ' — Status update';
   const C = { ink:'2C2C2B', muted:'7D7A75', line:'E6E5E3', soft:'F4F3F1', acc:'2783DE', ok:'46A171', warn:'D5803B', bad:'E56458' }, F = 'Arial', W = 13.333;
   const hex = c => String(c || '#2783DE').replace('#', '').slice(0, 6).toUpperCase();
@@ -1795,7 +1785,7 @@ function openReports(anchor, p){
   if(driveOn){
     body.append(
       item('Status report · Google Docs', 'Kept up to date in this project’s Drive folder. Gemini and NotebookLM can read it.', el('button', { class:'btn', onclick(){ closePop(); openStatusReport(p); } }, 'Open')),
-      item('Status slides · Google Slides', 'A fresh deck from this project: mood board, design options and notes.', el('button', { class:'btn primary', onclick(){ closePop(); makeSlides(p); } }, 'Make slides')),
+      item('Status slides · Google Slides', 'A fresh deck from today’s progress: overview, phases, timeline, what’s in progress, done and next, mood board, options.', el('button', { class:'btn primary', onclick(){ closePop(); makeSlides(p); } }, 'Make slides')),
       el('div', { class:'rep-tip', text:'Tip: in Google Slides, ask Gemini to restyle or add to the deck. In Gemini or NotebookLM, add the status report and ask “Write a status update for my boss.”' }));
   } else {
     body.append(
@@ -1812,11 +1802,8 @@ function openReports(anchor, p){
 const renamed = t => t === 'Design workspace' ? 'Anium.planning' : t;
 function restoreUI(){
   let st = null; try { st = JSON.parse(LS.get('dw-ui') || 'null'); } catch(e){}
-  if(st){ if(SHOW_TABS.includes(st.tab)) ui.tab = st.tab; ui.drawer = st.drawer || null; ui.noteId = st.noteId || null; ui.sideClosed = !!st.sideClosed; }
+  if(st){ if(TAB_IDS.includes(st.tab)) ui.tab = st.tab; ui.drawer = st.drawer || null; ui.noteId = st.noteId || null; ui.sideClosed = !!st.sideClosed; }
   ui.project = (st && W.projects.some(p => p.id === st.project)) ? st.project : W.projects[0].id;
-  // Links from the planner open a tab directly (projects.html#moodboard)
-  const h = location.hash.slice(1);
-  if(SHOW_TABS.includes(h)){ ui.tab = h; if(ui.drawer === 'info' && h !== 'moodboard') ui.drawer = null; history.replaceState(null, '', location.pathname + location.search); }
   if(ui.drawer === 'info' && ui.tab !== 'moodboard') ui.drawer = null;
 }
 async function bootOwner(){
