@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mood Board</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { --bg:#EFEFED; --surf:#fff; --surf2:#F0EFED; --bdr:#E6E5E3; --txt:#2C2C2B; --muted:#7D7A75; --acc:#2783DE; --shadow:rgba(0,0,0,0.1); --shadow2:rgba(0,0,0,0.06); }
+body.dark { --bg:#181818; --surf:#242424; --surf2:#2e2e2e; --bdr:rgba(255,255,255,0.1); --txt:rgba(255,255,255,0.88); --muted:rgba(255,255,255,0.4); --acc:#5E9FE8; --shadow:rgba(0,0,0,0.5); --shadow2:rgba(0,0,0,0.3); }
+
+body { background:var(--bg); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; overflow:hidden; width:100vw; height:100vh; user-select:none; transition:background .2s; }
+
+#canvas { position:relative; width:100%; height:100%; overflow:hidden; cursor:default; }
+
+#world {
+  position:absolute; left:0; top:0;
+  width:4000px; height:4000px;
+  transform-origin:0 0;
+}
+
+/* Toolbar */
+#toolbar { position:fixed; top:18px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:5px; background:var(--surf); border:1px solid var(--bdr); border-radius:14px; padding:7px 10px; z-index:1000; box-shadow:0 4px 20px var(--shadow2),0 1px 4px var(--shadow2); transition:background .2s,border-color .2s; }
+.tbtn { display:flex; align-items:center; gap:5px; padding:6px 12px; border-radius:9px; border:none; background:transparent; color:var(--muted); font-size:12.5px; font-weight:500; cursor:pointer; transition:all .15s; white-space:nowrap; font-family:inherit; }
+.tbtn:hover { background:var(--surf2); color:var(--txt); }
+.tbtn svg { width:15px; height:15px; flex-shrink:0; }
+.div { width:1px; height:20px; background:var(--bdr); margin:0 2px; }
+
+/* Zoom controls */
+#zoom-ctrl { position:fixed; bottom:22px; right:22px; display:flex; align-items:center; gap:4px; background:var(--surf); border:1px solid var(--bdr); border-radius:10px; padding:5px 8px; z-index:1000; box-shadow:0 2px 8px var(--shadow2); }
+.zbtn { width:26px; height:26px; border:none; background:transparent; color:var(--muted); cursor:pointer; border-radius:6px; font-size:16px; display:flex; align-items:center; justify-content:center; transition:all .12s; }
+.zbtn:hover { background:var(--surf2); color:var(--txt); }
+#zoom-pct { font-size:11px; font-weight:600; color:var(--muted); min-width:38px; text-align:center; font-family:inherit; }
+
+/* Expand indicator */
+#expand-badge { position:fixed; bottom:22px; left:50%; transform:translateX(-50%); background:var(--surf); border:1px solid var(--bdr); border-radius:8px; padding:5px 12px; font-size:11px; color:var(--muted); z-index:1000; pointer-events:none; opacity:0; transition:opacity .4s; }
+#expand-badge.show { opacity:1; }
+
+/* Hint */
+#hint { position:fixed; bottom:22px; left:50%; transform:translateX(-50%); color:var(--muted); font-size:11px; pointer-events:none; z-index:1000; letter-spacing:.02em; opacity:.7; }
+
+/* Saved badge */
+#saved { position:fixed; bottom:22px; left:22px; background:rgba(70,161,113,.12); border:1px solid rgba(70,161,113,.3); color:#46A171; font-size:11px; font-weight:600; padding:5px 10px; border-radius:6px; z-index:1000; opacity:0; transition:opacity .3s; pointer-events:none; }
+#saved.show { opacity:1; }
+
+/* Drop overlay */
+#drop-ov { display:none; position:fixed; inset:0; background:rgba(39,131,222,.08); border:2px dashed rgba(39,131,222,.5); z-index:500; pointer-events:none; align-items:center; justify-content:center; color:rgba(39,131,222,.8); font-size:18px; font-weight:500; gap:10px; flex-direction:column; }
+#drop-ov.on { display:flex; }
+
+/* Cards */
+.card { position:absolute; cursor:grab; border-radius:8px; box-shadow:0 2px 12px var(--shadow2),0 1px 3px var(--shadow2); transition:box-shadow .15s; }
+.card:hover { box-shadow:0 6px 24px var(--shadow),0 2px 6px var(--shadow2); }
+.card.drag { cursor:grabbing !important; box-shadow:0 14px 40px var(--shadow); z-index:200 !important; }
+.card.sel { outline:2px solid var(--acc); outline-offset:2px; }
+
+.rz { position:absolute; bottom:0; right:0; width:18px; height:18px; cursor:nwse-resize; display:flex; align-items:flex-end; justify-content:flex-end; padding:4px; opacity:0; transition:opacity .15s; }
+.card:hover .rz,.card.sel .rz { opacity:1; }
+.rz::before { content:''; display:block; width:10px; height:10px; border-right:2px solid rgba(128,128,128,.5); border-bottom:2px solid rgba(128,128,128,.5); border-radius:0 0 3px 0; }
+
+.xbtn { position:absolute; top:-9px; right:-9px; width:20px; height:20px; border-radius:50%; background:var(--surf); border:1px solid var(--bdr); color:var(--muted); font-size:12px; cursor:pointer; display:none; align-items:center; justify-content:center; z-index:10; transition:all .12s; box-shadow:0 1px 4px var(--shadow2); }
+.xbtn:hover { background:#E56458; color:#fff; border-color:#E56458; }
+.card:hover .xbtn,.card.sel .xbtn { display:flex; }
+
+/* Note card */
+.nc { min-width:160px; min-height:80px; padding:12px 12px 24px; }
+.nc textarea { width:100%; height:100%; border:none; background:transparent; color:inherit; font-family:inherit; font-size:13.5px; line-height:1.55; resize:none; outline:none; cursor:text; min-height:52px; }
+.nc textarea::placeholder { opacity:.38; }
+.nc-color-btn { position:absolute; bottom:6px; left:8px; width:14px; height:14px; border-radius:50%; border:1.5px solid rgba(128,128,128,.3); cursor:pointer; opacity:0; transition:opacity .15s; }
+.card:hover .nc-color-btn,.card.sel .nc-color-btn { opacity:1; }
+
+/* Image card */
+.ic { min-width:100px; min-height:80px; overflow:hidden; }
+.ic img { width:100%; height:100%; object-fit:cover; display:block; pointer-events:none; border-radius:8px; }
+
+/* Label */
+.lc { padding:7px 12px; min-width:60px; min-height:32px; display:flex; align-items:center; }
+.lc span { font-size:12px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; cursor:text; outline:none; white-space:nowrap; }
+
+/* Context menu */
+#ctx { display:none; position:fixed; background:var(--surf); border:1px solid var(--bdr); border-radius:10px; padding:5px; z-index:5000; box-shadow:0 8px 24px var(--shadow),0 2px 8px var(--shadow2); min-width:160px; }
+#ctx.open { display:block; }
+.cm-item { padding:7px 12px; font-size:12.5px; color:var(--txt); cursor:pointer; border-radius:6px; display:flex; align-items:center; gap:8px; transition:background .1s; }
+.cm-item:hover { background:var(--surf2); }
+.cm-sep { height:1px; background:var(--bdr); margin:4px 0; }
+.cm-item.danger { color:#E56458; }
+.cm-colors { display:flex; gap:5px; padding:5px 12px 7px; flex-wrap:wrap; }
+.cm-sw { width:20px; height:20px; border-radius:50%; cursor:pointer; border:2px solid transparent; transition:all .12s; flex-shrink:0; }
+.cm-sw:hover,.cm-sw.act { border-color:#fff; transform:scale(1.2); }
+body:not(.dark) .cm-sw:hover, body:not(.dark) .cm-sw.act { border-color:#2C2C2B; }
+
+/* Modals */
+.mo { display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:4000; align-items:center; justify-content:center; backdrop-filter:blur(3px); }
+.mo.open { display:flex; }
+.md { background:var(--surf); border:1px solid var(--bdr); border-radius:14px; padding:22px; width:360px; box-shadow:0 16px 48px var(--shadow); }
+.md h3 { font-size:14px; font-weight:600; margin-bottom:12px; }
+.md input { width:100%; background:var(--surf2); border:1px solid var(--bdr); border-radius:8px; padding:9px 12px; color:var(--txt); font-size:13px; outline:none; margin-bottom:12px; font-family:inherit; transition:border-color .15s; }
+.md input:focus { border-color:var(--acc); }
+.md input::placeholder { color:var(--muted); }
+.md-btns { display:flex; gap:8px; justify-content:flex-end; }
+.mdbtn { padding:7px 14px; border-radius:8px; border:1px solid var(--bdr); background:var(--surf2); color:var(--muted); font-size:12px; font-weight:500; cursor:pointer; transition:all .15s; font-family:inherit; }
+.mdbtn:hover { color:var(--txt); }
+.mdbtn.p { background:var(--acc); border-color:var(--acc); color:#fff; }
+.mdbtn.p:hover { filter:brightness(1.1); }
+.md-colors { display:flex; gap:7px; margin-bottom:12px; flex-wrap:wrap; }
+.md-sw { width:24px; height:24px; border-radius:50%; cursor:pointer; border:2px solid transparent; transition:all .12s; }
+.md-sw.act { border-color:var(--txt); transform:scale(1.15); }
+</style>
+</head>
+<body>
+<div id="canvas">
+  <div id="world"></div>
+</div>
+
+<div id="toolbar">
+  <button class="tbtn" id="btn-note">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><line x1="5" y1="6" x2="11" y2="6"/><line x1="5" y1="9" x2="9" y2="9"/></svg>Note
+  </button>
+  <div class="div"></div>
+  <button class="tbtn" id="btn-img">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="12" height="10" rx="2"/><circle cx="6" cy="7" r="1.2"/><path d="M2 11l3-3 2.5 2.5L10 8l4 4"/></svg>Image
+  </button>
+  <div class="div"></div>
+  <button class="tbtn" id="btn-lbl">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8h10M9 5l4 3-4 3"/></svg>Label
+  </button>
+  <div class="div"></div>
+  <button class="tbtn" id="btn-expand" title="Add 2000px of canvas space downward">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="8" y1="3" x2="8" y2="13"/><polyline points="5,10 8,13 11,10"/><line x1="3" y1="15" x2="13" y2="15"/></svg>Expand ↓
+  </button>
+  <div class="div"></div>
+  <button class="tbtn" id="btn-undo" title="Undo (Ctrl+Z)">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8a5 5 0 1 1 1.5 3.5"/><polyline points="3,5 3,8 6,8"/></svg>Undo
+  </button>
+  <div class="div"></div>
+  <button class="tbtn" id="btn-theme">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5"/><path d="M8 3v10M3 8h10" opacity=".4"/></svg><span id="theme-lbl">Dark</span>
+  </button>
+  <div class="div"></div>
+  <button class="tbtn" id="btn-clear" style="color:#E56458">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3l10 10M13 3L3 13"/></svg>Clear
+  </button>
+</div>
+
+<div id="zoom-ctrl">
+  <button class="zbtn" id="z-out" title="Zoom out">&#x2212;</button>
+  <span id="zoom-pct">100%</span>
+  <button class="zbtn" id="z-in" title="Zoom in">&#x2b;</button>
+  <button class="zbtn" id="z-fit" title="Reset view" style="font-size:11px;width:auto;padding:0 4px">&#x2b3b;</button>
+</div>
+
+<div id="hint">Space+drag to pan · Scroll to zoom · Right-click cards · Del to delete · Ctrl+D duplicate · Expand ↓ adds canvas space</div>
+<div id="saved">✓ Saved</div>
+<div id="expand-badge" aria-live="polite"></div>
+<div id="drop-ov">
+  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M3 15l5-5 4 4 3-3 6 6"/></svg>
+  Drop image here
+</div>
+
+<!-- Context menu -->
+<div id="ctx">
+  <div class="cm-item" id="cm-color-label" style="font-size:11px;color:var(--muted);padding-bottom:2px;cursor:default">Color</div>
+  <div class="cm-colors" id="cm-colors"></div>
+  <div class="cm-sep"></div>
+  <div class="cm-item" id="cm-dup">🗂 Duplicate</div>
+  <div class="cm-item" id="cm-front">⬆ Bring to front</div>
+  <div class="cm-item" id="cm-back">⬇ Send to back</div>
+  <div class="cm-sep"></div>
+  <div class="cm-item danger" id="cm-del">🗑 Delete</div>
+</div>
+
+<!-- Image URL modal -->
+<div class="mo" id="img-modal">
+  <div class="md">
+    <h3>Add Image</h3>
+    <input id="img-url" type="text" placeholder="Paste image URL or web address…" />
+    <div class="md-btns">
+      <button class="mdbtn" id="img-cancel">Cancel</button>
+      <button class="mdbtn p" id="img-ok">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- Note modal -->
+<div class="mo" id="note-modal">
+  <div class="md">
+    <h3>Add Note</h3>
+    <div class="md-colors" id="note-colors"></div>
+    <input id="note-text" type="text" placeholder="Note text (optional, can type later)…" />
+    <div class="md-btns">
+      <button class="mdbtn" id="note-cancel">Cancel</button>
+      <button class="mdbtn p" id="note-ok">Add</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SK='mb_v3';
+const world=document.getElementById('world');
+const canvas=document.getElementById('canvas');
+
+// ─── World size ───────────────────────────────────────────────────
+let worldW=4000, worldH=4000;
+function applyWorldSize(){
+  world.style.width=worldW+'px';
+  world.style.height=worldH+'px';
+}
+applyWorldSize();
+
+// ─── Expand down ─────────────────────────────────────────────────
+const EXPAND_STEP=2000;
+const badge=document.getElementById('expand-badge');
+let badgeTimer=null;
+function expandDown(){
+  worldH+=EXPAND_STEP;
+  applyWorldSize();
+  save();
+  // Show badge
+  badge.textContent='Canvas height: '+(worldH/1000).toFixed(0)+'k px — pan down to reach new space';
+  badge.classList.add('show');
+  clearTimeout(badgeTimer);
+  badgeTimer=setTimeout(()=>badge.classList.remove('show'),2600);
+  // Smoothly pan so the new space is hinted at
+  const target=pan.y-80*zoom;
+  const start=pan.y;
+  const dur=400;
+  const t0=performance.now();
+  function step(now){
+    const p=Math.min(1,(now-t0)/dur);
+    const ease=1-Math.pow(1-p,3);
+    pan.y=start+(target-start)*ease;
+    updateTransform();
+    if(p<1)requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+document.getElementById('btn-expand').addEventListener('click',expandDown);
+
+// ─── Theme colors ────────────────────────────────────────────────
+const NOTE_LIGHT=[
+  {bg:'#FFFFFF',text:'#2C2C2B',border:'#E6E5E3'},
+  {bg:'#E5F2FC',text:'#1a5f9e',border:'#b8d8f4'},
+  {bg:'#EEE8F8',text:'#6b3fad',border:'#d4c3f0'},
+  {bg:'#E8F1EC',text:'#2d7a52',border:'#b3d9c4'},
+  {bg:'#FEF3E2',text:'#a05c10',border:'#f5d9a8'},
+  {bg:'#FCE9E7',text:'#b33a30',border:'#f0bbb8'},
+];
+const NOTE_DARK=[
+  {bg:'#2e2e2e',text:'rgba(255,255,255,0.85)',border:'rgba(255,255,255,0.08)'},
+  {bg:'#1e3040',text:'#7fb8e0',border:'rgba(127,184,224,0.2)'},
+  {bg:'#2b1e3a',text:'#c49ae0',border:'rgba(196,154,224,0.2)'},
+  {bg:'#1e3028',text:'#7bc99a',border:'rgba(123,201,154,0.2)'},
+  {bg:'#3a2c1e',text:'#e0b37a',border:'rgba(224,179,122,0.2)'},
+  {bg:'#3a1e20',text:'#e07f7f',border:'rgba(224,127,127,0.2)'},
+];
+function noteColors(){return document.body.classList.contains('dark')?NOTE_DARK:NOTE_LIGHT;}
+
+// ─── State ───────────────────────────────────────────────────────
+let pan={x:0,y:0},zoom=1,zCounter=10;
+let selCard=null,dragState=null,resizeState=null;
+let spaceDown=false,isPanning=false,panStart={x:0,y:0},panOrigin={x:0,y:0};
+let noteColorIdx=0;
+let history=[],historyIdx=-1;
+let ctxCard=null;
+let saveTimer=null;
+
+const S={theme:'light'};
+
+function worldToScreen(wx,wy){return{x:wx*zoom+pan.x,y:wy*zoom+pan.y};}
+function screenToWorld(sx,sy){return{x:(sx-pan.x)/zoom,y:(sy-pan.y)/zoom};}
+function updateTransform(){
+  world.style.transform=`translate(${pan.x}px,${pan.y}px) scale(${zoom})`;
+  document.getElementById('zoom-pct').textContent=Math.round(zoom*100)+'%';
+  // Infinite grid: tile the background on the canvas itself, synced to pan/zoom
+  const dark=document.body.classList.contains('dark');
+  const maj=80*zoom, min=20*zoom;
+  const ox=(pan.x%maj+maj)%maj, oy=(pan.y%maj+maj)%maj;
+  const oxm=(pan.x%min+min)%min, oym=(pan.y%min+min)%min;
+  const majC=dark?'rgba(255,255,255,0.05)':'rgba(0,0,0,0.08)';
+  const minC=dark?'rgba(255,255,255,0.02)':'rgba(0,0,0,0.03)';
+  canvas.style.backgroundImage=[
+    `linear-gradient(${majC} 1px,transparent 1px)`,
+    `linear-gradient(90deg,${majC} 1px,transparent 1px)`,
+    `linear-gradient(${minC} 1px,transparent 1px)`,
+    `linear-gradient(90deg,${minC} 1px,transparent 1px)`
+  ].join(',');
+  canvas.style.backgroundSize=`${maj}px ${maj}px,${maj}px ${maj}px,${min}px ${min}px,${min}px ${min}px`;
+  canvas.style.backgroundPosition=`${ox}px ${oy}px,${ox}px ${oy}px,${oxm}px ${oym}px,${oxm}px ${oym}px`;
+}
+
+// ─── Persist ─────────────────────────────────────────────────────
+function collectCards(){
+  const cards=[];
+  world.querySelectorAll('.card').forEach(c=>{
+    const b={type:c.dataset.type,x:parseFloat(c.style.left),y:parseFloat(c.style.top),w:c.offsetWidth,h:c.offsetHeight,z:parseInt(c.style.zIndex)||10,ci:parseInt(c.dataset.ci||'0')};
+    if(b.type==='note'){b.text=c.querySelector('textarea').value;}
+    else if(b.type==='image'){const img=c.querySelector('img');b.src=img?img.src:'';}
+    else if(b.type==='label'){b.text=c.querySelector('span').textContent;}
+    cards.push(b);
+  });
+  return cards;
+}
+function save(){
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>{
+    try{
+      const data={cards:collectCards(),pan,zoom,zCounter,theme:S.theme,worldW,worldH};
+      localStorage.setItem(SK,JSON.stringify(data));
+      showSaved();
+    }catch(e){}
+  },400);
+}
+function showSaved(){const b=document.getElementById('saved');b.classList.add('show');setTimeout(()=>b.classList.remove('show'),1400);}
+function loadData(){
+  try{const r=localStorage.getItem(SK);return r?JSON.parse(r):null;}catch(e){return null;}
+}
+
+// ─── Undo ─────────────────────────────────────────────────────────
+function pushHistory(){
+  const snap=JSON.stringify(collectCards());
+  if(historyIdx<history.length-1)history=history.slice(0,historyIdx+1);
+  history.push(snap);
+  if(history.length>30)history.shift();
+  historyIdx=history.length-1;
+}
+function undo(){
+  if(historyIdx<=0)return;
+  historyIdx--;
+  const cards=JSON.parse(history[historyIdx]);
+  world.querySelectorAll('.card').forEach(c=>c.remove());
+  selCard=null;
+  zCounter=10;
+  cards.forEach(c=>makeCard(c.type,{pos:{x:c.x,y:c.y},w:c.w,h:c.h,z:c.z,ci:c.ci,src:c.src,text:c.text},true));
+  save();
+}
+
+// ─── Cards ───────────────────────────────────────────────────────
+function randomPos(w,h){
+  const vw=canvas.clientWidth,vh=canvas.clientHeight;
+  const wp=screenToWorld(vw/2,vh/2);
+  return{x:wp.x-w/2+Math.random()*60-30,y:wp.y-h/2+Math.random()*60-30};
+}
+
+function makeCard(type,opts={},skipHistory=false){
+  const card=document.createElement('div');
+  card.className='card';
+  card.dataset.type=type;
+  const z=opts.z||++zCounter;
+  card.style.zIndex=z;
+  if(opts.z&&opts.z>zCounter)zCounter=opts.z;
+  const ci=opts.ci!=null?opts.ci:noteColorIdx;
+  card.dataset.ci=ci;
+
+  const xb=document.createElement('button');xb.className='xbtn';xb.innerHTML='×';
+  xb.addEventListener('click',e=>{e.stopPropagation();pushHistory();card.remove();if(selCard===card)selCard=null;save();});
+  card.appendChild(xb);
+
+  const rz=document.createElement('div');rz.className='rz';card.appendChild(rz);
+
+  const pos=opts.pos||randomPos(opts.w||200,opts.h||160);
+  card.style.left=pos.x+'px';card.style.top=pos.y+'px';
+  if(opts.w)card.style.width=opts.w+'px';
+  if(opts.h)card.style.height=opts.h+'px';
+
+  if(type==='image'){
+    card.classList.add('ic');
+    const img=document.createElement('img');
+    img.src=opts.src||'';
+    img.draggable=false;
+    img.onerror=()=>{card.style.background='var(--surf2)';card.style.border='1px solid var(--bdr)';card.style.display='flex';card.style.alignItems='center';card.style.justifyContent='center';img.remove();const m=document.createElement('span');m.style.cssText='color:var(--muted);font-size:11px;text-align:center;padding:12px;pointer-events:none';m.textContent='⚠️ Could not load';card.insertBefore(m,rz);};
+    card.insertBefore(img,rz);
+  } else if(type==='note'){
+    card.classList.add('nc');
+    const col=noteColors()[ci%noteColors().length];
+    applyNoteColor(card,ci);
+    const ta=document.createElement('textarea');
+    ta.placeholder='Write a note…';ta.value=opts.text||'';
+    ta.style.color=col.text;
+    ta.addEventListener('mousedown',e=>e.stopPropagation());
+    ta.addEventListener('input',save);
+    card.insertBefore(ta,rz);
+    const cb=document.createElement('div');cb.className='nc-color-btn';cb.style.background=col.bg==='#FFFFFF'?'#ccc':col.bg;
+    cb.title='Change color';cb.addEventListener('click',e=>{e.stopPropagation();cycleNoteColor(card);});
+    card.insertBefore(cb,rz);
+  } else if(type==='label'){
+    card.classList.add('lc');
+    card.style.background='var(--surf)';card.style.border='1px solid var(--bdr)';
+    const sp=document.createElement('span');sp.contentEditable='true';sp.spellcheck=false;
+    sp.style.color='var(--muted)';sp.textContent=opts.text||'LABEL';
+    sp.addEventListener('mousedown',e=>e.stopPropagation());
+    sp.addEventListener('input',save);
+    sp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sp.blur();}});
+    card.insertBefore(sp,rz);
+  }
+
+  setupCardEvents(card,rz);
+  world.appendChild(card);
+  if(!skipHistory)pushHistory();
+  if(!skipHistory)save();
+  return card;
+}
+
+function applyNoteColor(card,ci){
+  const cols=noteColors();
+  const col=cols[ci%cols.length];
+  card.style.background=col.bg;
+  card.style.border='1px solid '+col.border;
+  card.dataset.ci=ci;
+  const ta=card.querySelector('textarea');
+  if(ta)ta.style.color=col.text;
+  const cb=card.querySelector('.nc-color-btn');
+  if(cb)cb.style.background=col.bg==='#FFFFFF'?'#ccc':col.bg;
+}
+
+function cycleNoteColor(card){
+  const ci=(parseInt(card.dataset.ci||'0')+1)%noteColors().length;
+  applyNoteColor(card,ci);
+  save();
+}
+
+function setupCardEvents(card,rz){
+  card.addEventListener('mousedown',e=>{
+    if(e.target===rz||rz.contains(e.target))return;
+    if(e.target.tagName==='BUTTON'||e.target.closest('.xbtn'))return;
+    if(e.button!==0)return;
+    e.preventDefault();
+    selectCard(card);
+    card.style.zIndex=++zCounter;
+    const wp=screenToWorld(e.clientX,e.clientY);
+    dragState={card,ox:wp.x-parseFloat(card.style.left),oy:wp.y-parseFloat(card.style.top)};
+    card.classList.add('drag');
+  });
+  rz.addEventListener('mousedown',e=>{
+    e.preventDefault();e.stopPropagation();
+    selectCard(card);
+    resizeState={card,sx:e.clientX,sy:e.clientY,sw:card.offsetWidth,sh:card.offsetHeight};
+  });
+  card.addEventListener('contextmenu',e=>{
+    e.preventDefault();e.stopPropagation();
+    showCtxMenu(e.clientX,e.clientY,card);
+  });
+}
+
+function selectCard(card){
+  if(selCard&&selCard!==card)selCard.classList.remove('sel');
+  selCard=card;card.classList.add('sel');
+}
+
+// ─── Mouse events ─────────────────────────────────────────────────
+document.addEventListener('mousemove',e=>{
+  if(isPanning){
+    pan.x=panOrigin.x+(e.clientX-panStart.x);
+    pan.y=panOrigin.y+(e.clientY-panStart.y);
+    updateTransform();
+  }
+  if(dragState){
+    const wp=screenToWorld(e.clientX,e.clientY);
+    const nx=wp.x-dragState.ox,ny=wp.y-dragState.oy;
+    dragState.card.style.left=nx+'px';dragState.card.style.top=ny+'px';
+  }
+  if(resizeState){
+    const dx=(e.clientX-resizeState.sx)/zoom;
+    const dy=(e.clientY-resizeState.sy)/zoom;
+    resizeState.card.style.width=Math.max(80,resizeState.sw+dx)+'px';
+    resizeState.card.style.height=Math.max(50,resizeState.sh+dy)+'px';
+  }
+});
+document.addEventListener('mouseup',e=>{
+  if(isPanning){isPanning=false;canvas.style.cursor=spaceDown?'grab':'default';}
+  if(dragState){dragState.card.classList.remove('drag');dragState=null;save();}
+  if(resizeState){resizeState=null;save();}
+});
+
+canvas.addEventListener('mousedown',e=>{
+  if(e.button===1||(e.button===0&&spaceDown)){
+    isPanning=true;panStart={x:e.clientX,y:e.clientY};panOrigin={x:pan.x,y:pan.y};
+    canvas.style.cursor='grabbing';e.preventDefault();
+    return;
+  }
+  if(e.target===canvas||e.target===world){if(selCard){selCard.classList.remove('sel');selCard=null;}}
+});
+
+// Scroll to zoom
+canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const rect=canvas.getBoundingClientRect();
+  const cx=e.clientX-rect.left,cy=e.clientY-rect.top;
+  const factor=e.deltaY>0?0.9:1.1;
+  const nz=Math.min(4,Math.max(0.15,zoom*factor));
+  pan.x=cx-(cx-pan.x)*(nz/zoom);
+  pan.y=cy-(cy-pan.y)*(nz/zoom);
+  zoom=nz;
+  updateTransform();
+},{passive:false});
+
+// Keyboard
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'&&!e.target.matches('input,textarea,[contenteditable]')){
+    spaceDown=true;canvas.style.cursor='grab';e.preventDefault();
+  }
+  if((e.key==='Delete'||e.key==='Backspace')&&selCard&&!e.target.matches('input,textarea,[contenteditable]')){
+    pushHistory();selCard.remove();selCard=null;save();
+  }
+  if(e.key==='d'&&(e.ctrlKey||e.metaKey)&&selCard){
+    e.preventDefault();
+    const c=selCard;
+    const type=c.dataset.type;
+    const opts={pos:{x:parseFloat(c.style.left)+20,y:parseFloat(c.style.top)+20},w:c.offsetWidth,h:c.offsetHeight,ci:parseInt(c.dataset.ci||'0')};
+    if(type==='note')opts.text=c.querySelector('textarea').value;
+    else if(type==='image'){const img=c.querySelector('img');opts.src=img?img.src:'';}
+    else if(type==='label')opts.text=c.querySelector('span').textContent;
+    makeCard(type,opts);
+  }
+  if(e.key==='z'&&(e.ctrlKey||e.metaKey)&&!e.shiftKey){e.preventDefault();undo();}
+  if(e.key==='Escape'){if(selCard){selCard.classList.remove('sel');selCard=null;}closeCtx();}
+});
+document.addEventListener('keyup',e=>{if(e.code==='Space'){spaceDown=false;canvas.style.cursor='default';}});
+
+// ─── Context menu ─────────────────────────────────────────────────
+const ctxEl=document.getElementById('ctx');
+const cmColors=document.getElementById('cm-colors');
+
+function buildCmColors(){
+  cmColors.innerHTML='';
+  const hasCi=ctxCard&&ctxCard.dataset.type==='note';
+  document.getElementById('cm-color-label').style.display=hasCi?'':'none';
+  cmColors.style.display=hasCi?'':'none';
+  if(!hasCi)return;
+  noteColors().forEach((c,i)=>{
+    const sw=document.createElement('div');sw.className='cm-sw'+(parseInt(ctxCard.dataset.ci||'0')===i?' act':'');
+    sw.style.background=c.bg==='#FFFFFF'?'#E6E5E3':c.bg;
+    sw.addEventListener('click',()=>{applyNoteColor(ctxCard,i);save();closeCtx();});
+    cmColors.appendChild(sw);
+  });
+}
+
+function showCtxMenu(x,y,card){
+  ctxCard=card;selectCard(card);
+  buildCmColors();
+  ctxEl.style.left=x+'px';ctxEl.style.top=y+'px';
+  ctxEl.classList.add('open');
+  requestAnimationFrame(()=>{
+    const r=ctxEl.getBoundingClientRect();
+    if(r.right>window.innerWidth)ctxEl.style.left=(x-r.width)+'px';
+    if(r.bottom>window.innerHeight)ctxEl.style.top=(y-r.height)+'px';
+  });
+}
+function closeCtx(){ctxEl.classList.remove('open');ctxCard=null;}
+
+document.getElementById('cm-dup').addEventListener('click',()=>{
+  if(!ctxCard)return;
+  const type=ctxCard.dataset.type;
+  const opts={pos:{x:parseFloat(ctxCard.style.left)+24,y:parseFloat(ctxCard.style.top)+24},w:ctxCard.offsetWidth,h:ctxCard.offsetHeight,ci:parseInt(ctxCard.dataset.ci||'0')};
+  if(type==='note')opts.text=ctxCard.querySelector('textarea').value;
+  else if(type==='image'){const img=ctxCard.querySelector('img');opts.src=img?img.src:'';}
+  else if(type==='label')opts.text=ctxCard.querySelector('span').textContent;
+  makeCard(type,opts);closeCtx();
+});
+document.getElementById('cm-front').addEventListener('click',()=>{
+  if(!ctxCard)return;ctxCard.style.zIndex=++zCounter;save();closeCtx();
+});
+document.getElementById('cm-back').addEventListener('click',()=>{
+  if(!ctxCard)return;ctxCard.style.zIndex=1;save();closeCtx();
+});
+document.getElementById('cm-del').addEventListener('click',()=>{
+  if(!ctxCard)return;pushHistory();ctxCard.remove();if(selCard===ctxCard)selCard=null;save();closeCtx();
+});
+document.addEventListener('click',e=>{if(!ctxEl.contains(e.target))closeCtx();});
+
+// ─── Toolbar ──────────────────────────────────────────────────────
+let noteResolve=null,imgResolve=null;
+
+function openNoteModal(){
+  const modal=document.getElementById('note-modal');
+  const colors=document.getElementById('note-colors');
+  colors.innerHTML='';
+  noteColors().forEach((c,i)=>{
+    const sw=document.createElement('div');sw.className='md-sw'+(i===noteColorIdx?' act':'');
+    sw.style.background=c.bg==='#FFFFFF'?'#E6E5E3':c.bg;
+    sw.addEventListener('click',()=>{noteColorIdx=i;colors.querySelectorAll('.md-sw').forEach((s,j)=>s.classList.toggle('act',j===i));});
+    colors.appendChild(sw);
+  });
+  document.getElementById('note-text').value='';
+  modal.classList.add('open');
+  setTimeout(()=>document.getElementById('note-text').focus(),50);
+  return new Promise(r=>{noteResolve=r;});
+}
+function openImgModal(){
+  document.getElementById('img-url').value='';
+  document.getElementById('img-modal').classList.add('open');
+  setTimeout(()=>document.getElementById('img-url').focus(),50);
+  return new Promise(r=>{imgResolve=r;});
+}
+
+document.getElementById('note-ok').addEventListener('click',()=>{document.getElementById('note-modal').classList.remove('open');if(noteResolve){noteResolve(document.getElementById('note-text').value);noteResolve=null;}});
+document.getElementById('note-cancel').addEventListener('click',()=>{document.getElementById('note-modal').classList.remove('open');if(noteResolve){noteResolve(null);noteResolve=null;}});
+document.getElementById('note-text').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();document.getElementById('note-ok').click();}});
+
+document.getElementById('img-ok').addEventListener('click',()=>{document.getElementById('img-modal').classList.remove('open');if(imgResolve){imgResolve(document.getElementById('img-url').value.trim());imgResolve=null;}});
+document.getElementById('img-cancel').addEventListener('click',()=>{document.getElementById('img-modal').classList.remove('open');if(imgResolve){imgResolve(null);imgResolve=null;}});
+document.getElementById('img-url').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('img-ok').click();});
+
+document.getElementById('btn-note').addEventListener('click',async()=>{
+  const text=await openNoteModal();
+  if(text!==null)makeCard('note',{text,ci:noteColorIdx,w:220,h:140});
+});
+document.getElementById('btn-img').addEventListener('click',async()=>{
+  const src=await openImgModal();
+  if(src)makeCard('image',{src,w:240,h:200});
+});
+document.getElementById('btn-lbl').addEventListener('click',()=>makeCard('label',{w:120,h:36}));
+document.getElementById('btn-undo').addEventListener('click',undo);
+document.getElementById('btn-clear').addEventListener('click',()=>{
+  if(!confirm('Clear all cards?'))return;
+  pushHistory();
+  world.querySelectorAll('.card').forEach(c=>c.remove());
+  selCard=null;save();
+});
+document.getElementById('btn-theme').addEventListener('click',()=>{
+  S.theme=S.theme==='dark'?'light':'dark';
+  document.body.classList.toggle('dark',S.theme==='dark');
+  document.getElementById('theme-lbl').textContent=S.theme==='dark'?'Light':'Dark';
+  world.querySelectorAll('.card.nc').forEach(c=>applyNoteColor(c,parseInt(c.dataset.ci||'0')));
+  save();
+});
+
+// Zoom buttons
+document.getElementById('z-in').addEventListener('click',()=>{setZoom(zoom*1.2);});
+document.getElementById('z-out').addEventListener('click',()=>{setZoom(zoom/1.2);});
+document.getElementById('z-fit').addEventListener('click',()=>{pan={x:0,y:0};zoom=1;updateTransform();});
+function setZoom(nz){
+  const cx=canvas.clientWidth/2,cy=canvas.clientHeight/2;
+  nz=Math.min(4,Math.max(0.15,nz));
+  pan.x=cx-(cx-pan.x)*(nz/zoom);
+  pan.y=cy-(cy-pan.y)*(nz/zoom);
+  zoom=nz;updateTransform();
+}
+
+// Drag & drop images
+const dropOv=document.getElementById('drop-ov');
+document.addEventListener('dragover',e=>{e.preventDefault();dropOv.classList.add('on');});
+document.addEventListener('dragleave',e=>{if(!e.relatedTarget)dropOv.classList.remove('on');});
+document.addEventListener('drop',e=>{
+  e.preventDefault();dropOv.classList.remove('on');
+  const wp=screenToWorld(e.clientX,e.clientY);
+  const pos={x:wp.x-120,y:wp.y-100};
+  const files=Array.from(e.dataTransfer.files).filter(f=>f.type.startsWith('image/'));
+  files.forEach(f=>{const r=new FileReader();r.onload=ev=>makeCard('image',{src:ev.target.result,w:240,h:200,pos});r.readAsDataURL(f);});
+  if(!files.length){
+    const src=droppedPicture(e.dataTransfer);
+    if(src)makeCard('image',{src,w:240,h:200,pos});
+  }
+});
+// A picture dragged from another site: use the picture itself (its largest size), not the link around it.
+function droppedPicture(dt){
+  const html=dt.getData('text/html');
+  const img=html&&new DOMParser().parseFromString(html,'text/html').querySelector('img');
+  if(img){
+    let best=img.getAttribute('src')||'',bw=0;
+    (img.getAttribute('srcset')||'').split(',').forEach(s=>{const[u,d]=s.trim().split(/\s+/);const w=parseFloat(d)||0;if(/^https?:/i.test(u||'')&&w>bw){bw=w;best=u;}});
+    if(/^(https?:|data:image\/)/i.test(best))return best;
+  }
+  const txt=(dt.getData('text/uri-list')||dt.getData('text/plain')||'').split('\n')[0].trim();
+  return /^https?:/i.test(txt)?txt:'';
+}
+
+// ─── Init ─────────────────────────────────────────────────────────
+const saved=loadData();
+if(saved){
+  S.theme=saved.theme||'light';
+  if(saved.pan)pan=saved.pan;
+  if(saved.zoom)zoom=saved.zoom;
+  if(saved.zCounter)zCounter=saved.zCounter;
+  if(saved.worldW){worldW=saved.worldW;worldH=saved.worldH;applyWorldSize();}
+  if(saved.cards&&saved.cards.length){
+    saved.cards.forEach(c=>makeCard(c.type,{pos:{x:c.x,y:c.y},w:c.w,h:c.h,z:c.z,ci:c.ci,src:c.src,text:c.text},true));
+  }
+} else {
+  makeCard('note',{text:'Scroll to zoom · Space+drag to pan · Right-click cards for options',ci:0,w:260,h:90,pos:{x:60,y:80}},true);
+  makeCard('label',{text:'MOOD BOARD',w:140,h:36,pos:{x:60,y:190}},true);
+  makeCard('note',{text:'',ci:1,w:200,h:160,pos:{x:360,y:80}},true);
+}
+document.body.classList.toggle('dark',S.theme==='dark');
+document.getElementById('theme-lbl').textContent=S.theme==='dark'?'Light':'Dark';
+updateTransform();
+pushHistory();
+</script>
+</body>
+</html>

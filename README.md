@@ -1,7 +1,12 @@
 # Anium.planning
 
-A day planner: tell Claude what you need to do and it lays out your day hour by hour, keeps a timeline of every
-longer task, and remembers what you got done.
+A planning workspace with two parts:
+
+- **The planner** (`index.html`): tell Claude what you need to do and it lays out your day hour by hour, keeps a
+  timeline of every longer task, and remembers what you got done.
+- **Projects** (`projects.html`): a mood board, Narrow scope (compare design options) and notes for each project.
+
+Tabs at the top of both pages switch between them: Day · Past days · Timeline · Mood board · Narrow scope · Notes.
 
 **App:** https://anium-planning.vercel.app/  ·  **First time?** See [SETUP.md](SETUP.md)  ·  [Privacy](privacy.html)
 
@@ -22,6 +27,19 @@ longer task, and remembers what you got done.
   `My Drive / Anium.planning / planner.json` and syncs across your devices; attachments go in `Attachments`.
 - Gantt tasks from the earlier version of the app are brought onto the Timeline the first time you sign in.
 
+### Projects
+
+- **Projects** live in the sidebar of the projects page. Each has three tabs: Mood board, Narrow scope, Notes.
+  (A project's schedule is on the planner's Timeline.)
+- **Pictures:** every picture is saved as the app's own copy (in your Drive), even ones from Pinterest or other
+  sites. Upload, paste a picture or page address, paste a copied picture (Ctrl/⌘+V), or drag files in. On Narrow
+  scope, click a picture to move/zoom it and draw arrows, boxes, text, and freehand.
+- **Sharing is per project.** Share → turn on *Anyone with the link can view* → copy the link. Viewers don't need
+  a Google account, can't edit, and can download a copy.
+- **Download a copy** gives one `.html` file of a project (pictures included) that opens in any browser, offline.
+- **History** keeps up to 30 versions per tab; edits within 10 minutes of each other are grouped.
+- **Progress** on a project makes a status report and slides from its mood board, options and notes.
+
 ## Files
 
 | Path | What it is |
@@ -30,7 +48,10 @@ longer task, and remembers what you got done.
 | `privacy.html` | Privacy policy, linked from Google's sign-in screen. |
 | `api/auth/` | Sign-in service: keeps each browser signed in to Google and hands the app short-lived Drive access. |
 | `api/plan.js` | Plan my day: asks Claude (through Vercel AI Gateway) for a plan. Signed-in users only. |
+| `api/image.js` | Picture fetcher: downloads pictures from other sites (Pinterest pins included) so projects keep their own copy. |
+| `config.js` | Google API key (used to open shared project links) and Client ID. |
 | `vendor/` | PptxGenJS (MIT), used to build the status slides. |
-| `src/app.js` | App code: core, dates, data, storage (browser + Drive sync), Day, Past days, Timeline, search, Plan my day, Google. |
-| `src/app.css` | Styles (light/dark tokens at the top). |
-| `src/build.py` | Rebuilds `index.html` from `src/`: `python3 src/build.py` |
+| `src/planner/` | The planner's code (`app.js`) and styles (`app.css`): Day, Past days, Timeline, search, Plan my day, Drive sync. |
+| `src/app.js`, `src/app.css` | The projects page: storage (browser + Drive), one module per tab, sharing, reports. |
+| `src/bridge.js`, `src/templates/` | The mood board (and the old Gantt) templates, and what connects them to the projects page. |
+| `src/build.py` | Rebuilds `index.html` and `projects.html` from `src/`: `python3 src/build.py` |

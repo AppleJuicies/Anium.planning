@@ -2,6 +2,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@vercel/oidc": "3.8.9"
+    "@vercel/oidc": "3.8.9",
+    "sharp": "0.35.5"
   }
 }

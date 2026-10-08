@@ -32,15 +32,20 @@ and Part 3 turns on Plan my day.
    - Application type: **Web application**, name: `Anium web`.
    - **Authorized redirect URIs → Add URI**: `https://anium-planning.vercel.app/api/auth/callback`
    - **Create** → copy the **Client ID** (ends in `.apps.googleusercontent.com`) and the **Client secret**.
-6. Give the sign-in service its settings (run in this folder; each command asks you to paste the value):
+6. **APIs & Services → Credentials → Create credentials → API key** (used to open shared project links) → copy it,
+   then **Edit API key**:
+   - Application restrictions: **Websites** → add `https://anium-planning.vercel.app/*`
+   - API restrictions: **Restrict key** → choose **Google Drive API** → **Save**.
+   Put it and the Client ID in `config.js` (both are safe to publish).
+7. Give the sign-in service its settings (run in this folder; each command asks you to paste the value):
    ```bash
    vercel env add GOOGLE_CLIENT_ID production
    vercel env add GOOGLE_CLIENT_SECRET production --sensitive
    openssl rand -base64 48 | tr -d '\n' | vercel env add SESSION_SECRET production --sensitive
    ```
    The client secret and session secret are private: never put them anywhere in the repo.
-7. Deploy again: `vercel deploy --prod`.
-8. In the app, click **Connect Drive** (top right) and approve. That browser stays signed in from then on.
+8. Deploy again: `vercel deploy --prod`.
+9. In the app, click **Connect Drive** (top right) and approve. That browser stays signed in from then on.
 
 ## Part 3 — Plan my day (Claude)
 
@@ -57,6 +62,7 @@ the project's own OIDC token, so there's no key to create. AI Gateway usage is b
 
 - **"Error 400: redirect_uri_mismatch":** the redirect URI in step 5 must be exactly `https://anium-planning.vercel.app/api/auth/callback`.
 - **"Google sign-in didn't finish":** check that `GOOGLE_CLIENT_SECRET` and `SESSION_SECRET` are set (`vercel env ls`), then deploy again. `vercel logs` shows the reason.
+- **Share link says "isn't available":** check the API key restrictions in step 6, and that sharing is switched on for that project.
 - **Plan my day says it isn't set up:** check **AI Gateway** is available for the team in the Vercel dashboard, then `vercel logs` for `plan:` lines.
 - **"Access blocked: app not completed verification":** add that person's Gmail as a test user (step 4).
 - **Asked to sign in again every week:** Google limits sign-ins to 7 days while the app is in *Testing*. Publishing the app (**Audience → Publish app**) removes the limit.

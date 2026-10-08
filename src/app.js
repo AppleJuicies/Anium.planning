@@ -8,14 +8,16 @@ const $ = (s, r) => (r || document).querySelector(s);
 const uid = () => Math.random().toString(36).slice(2, 10);
 const clone = o => o == null ? o : JSON.parse(JSON.stringify(o));
 const nowISO = () => new Date().toISOString();
+const safeJSON = x => JSON.stringify(x).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-const store = kind => ({
+const store = (kind) => ({
   get(k){ try { return window[kind].getItem(k); } catch(e){ return null; } },
   set(k, v){ try { window[kind].setItem(k, v); return true; } catch(e){ return false; } },
   del(k){ try { window[kind].removeItem(k); } catch(e){} }
 });
-const LS = store('localStorage'), SS = store('sessionStorage');
+const LS = store('localStorage');
+const plain = o => JSON.parse(JSON.stringify(o, (k, v) => k.charAt(0) === '_' ? undefined : v));
 
 function el(tag, props, ...kids){
   const e = document.createElement(tag);
@@ -26,196 +28,169 @@ function el(tag, props, ...kids){
     else if(k === 'text') e.textContent = v;
     else if(k === 'html') e.innerHTML = v;
     else if(k.startsWith('on') && typeof v === 'function') e.addEventListener(k.slice(2), v);
-    else if(k === 'style' && typeof v === 'object') for(const s in v){ if(s.startsWith('--')) e.style.setProperty(s, v[s]); else e.style[s] = v[s]; }
-    else if(typeof v === 'boolean' || typeof v === 'number' && k in e) e[k] = v;
+    else if(k === 'style' && typeof v === 'object') Object.assign(e.style, v);
+    else if(typeof v === 'boolean' || (typeof v === 'number' && k in e)) e[k] = v;
     else e.setAttribute(k, v);
   }
   kids.flat(Infinity).forEach(c => { if(c == null || c === false) return; e.append(c.nodeType ? c : document.createTextNode(String(c))); });
   return e;
 }
+const NS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, attrs){ const e = document.createElementNS(NS, tag); for(const k in attrs) e.setAttribute(k, attrs[k]); return e; }
 const ICON = {
   day:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.8v2.4M10.5 1.8v2.4M4.5 9h4M4.5 11.5h6"/></svg>',
   log:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2.5 4.2l1.2 1.2 2.1-2.4M2.5 9.2l1.2 1.2 2.1-2.4M8 4.5h5.5M8 9.5h5.5M3 13.5h10.5"/></svg>',
+  report:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="2" y="2.5" width="12" height="9" rx="1.2"/><path d="M5 9V7.2M8 9V5.2M11 9V6.4M6 14h4"/></svg>',
+  menu:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg>',
+  board:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2" width="5" height="7" rx="1"/><rect x="9" y="2" width="5" height="4" rx="1"/><rect x="2" y="11" width="5" height="3" rx="1"/><rect x="9" y="8" width="5" height="6" rx="1"/></svg>',
+  scope:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 3h12l-4.5 5.5V13l-3 1.2V8.5z"/></svg>',
   gantt:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2.5 4h6M5 8h7M8 12h5.5"/></svg>',
-  spark:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"><path d="M7 2l1.4 3.6L12 7l-3.6 1.4L7 12 5.6 8.4 2 7l3.6-1.4z"/><path d="M12.5 10.5v4M10.5 12.5h4"/></svg>',
-  report:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2.5 13.5h11"/><path d="M4.5 11V8M8 11V4.5M11.5 11V6.5"/></svg>',
-  left:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5L5.5 8l4.5 4.5"/></svg>',
-  right:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5L10.5 8 6 12.5"/></svg>',
-  down:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6l4.5 4.5L12.5 6"/></svg>',
-  plus:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>',
+  notes:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4 2h6l3 3v9H4z"/><path d="M6.5 8h4M6.5 10.5h4"/></svg>',
+  clock:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="5.8"/><path d="M8 4.8V8l2.2 1.4"/></svg>',
+  info:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="5.8"/><path d="M8 7.3v3.6M8 5.2v.1"/></svg>',
   close:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
-  search:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.4 10.4L14 14"/></svg>',
-  clip:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13 7.5l-5.3 5.3a3.2 3.2 0 01-4.5-4.5l5.6-5.6a2.1 2.1 0 013 3l-5.5 5.5a1 1 0 01-1.5-1.5L10 4.6"/></svg>',
-  drive:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M4.6 12.5h7a2.9 2.9 0 00.5-5.8 4 4 0 00-7.8-.8 3.3 3.3 0 00.3 6.6z"/></svg>',
-  check:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>'
+  more:'<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg>',
+  plus:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>',
+  image:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><rect x="2" y="3" width="12" height="10" rx="1.5"/><circle cx="6" cy="6.5" r="1.2"/><path d="M2.5 12l3.8-3.6 2.7 2.4 2-1.7 2.5 2.3"/></svg>',
+  down:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 2.5v8M4.5 7.5L8 11l3.5-3.5M3 13.5h10"/></svg>',
+  up:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 11V3M4.5 6L8 2.5 11.5 6M3 13.5h10"/></svg>',
+  share:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10V2.5M5 5.2L8 2.3l3 2.9"/><path d="M5.5 7.5H4a1 1 0 00-1 1v4.5a1 1 0 001 1h8a1 1 0 001-1V8.5a1 1 0 00-1-1h-1.5"/></svg>',
+  drive:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M5.6 2.5h4.8l4.1 7.1-2.4 4.1H4l-2.5-4.1z"/><path d="M5.6 2.5l4.1 7.1H14.5M1.5 9.6l4.1-7.1M4 13.7l2.4-4.1"/></svg>',
+  text:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3.5h10M8 3.5V13"/></svg>',
+  pen:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 13.5l1-3.5 7.5-7.5 2.5 2.5L6 12.5z"/></svg>',
+  arrow:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13L13 3M7 3h6v6"/></svg>',
+  box:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="3.5" width="11" height="9" rx="1"/></svg>',
+  move:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5v13M1.5 8h13M8 1.5L6 3.5M8 1.5l2 2M8 14.5l-2-2M8 14.5l2-2M1.5 8l2-2M1.5 8l2 2M14.5 8l-2-2M14.5 8l-2 2"/></svg>',
+  undo:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3L2 6l3 3"/><path d="M2 6h7.5a4 4 0 010 8H6"/></svg>',
+  edit:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 13.5l1-3.5 7.5-7.5 2.5 2.5L6 12.5z"/></svg>'
 };
 const icon = n => { const s = el('span', { html: ICON[n] }); s.style.display = 'contents'; return s; };
 
+const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function fmtClock(d){ let h = d.getHours(), m = d.getMinutes(); const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; return h + ':' + String(m).padStart(2, '0') + ' ' + ap; }
+function fmtDate(iso, withTime){
+  if(!iso) return '';
+  const d = new Date(iso), n = new Date();
+  const day = MON[d.getMonth()] + ' ' + d.getDate() + (d.getFullYear() === n.getFullYear() ? '' : ', ' + d.getFullYear());
+  return withTime === false ? day : day + ', ' + fmtClock(d);
+}
+function fmtAgo(iso){
+  if(!iso) return '';
+  const d = new Date(iso), s = (Date.now() - d) / 1000;
+  if(s < 45) return 'just now';
+  if(s < 3600) return Math.round(s / 60) + ' min ago';
+  const n = new Date();
+  if(d.toDateString() === n.toDateString()) return 'today ' + fmtClock(d);
+  const y = new Date(n); y.setDate(n.getDate() - 1);
+  if(d.toDateString() === y.toDateString()) return 'yesterday ' + fmtClock(d);
+  return fmtDate(iso);
+}
+function hash(str){ let h = 0x811c9dc5; for(let i = 0; i < str.length; i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(36) + str.length.toString(36); }
+function plural(n, w){ return n + ' ' + w + (n === 1 ? '' : 's'); }
+function host(url){ try { return new URL(url).hostname.replace(/^www\./, ''); } catch(e){ return 'the web'; } }
+
 let toastTimer = null;
 function toast(msg, ms){
-  clearToast();
-  const t = el('div', { class:'toast', role:'status', text: msg }); document.body.append(t);
+  let t = $('.toast'); if(t) t.remove();
+  t = el('div', { class:'toast', role:'status', text: msg }); document.body.append(t);
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), ms || 2800);
 }
-function clearToast(){ const t = $('.toast'); if(t) t.remove(); }
-// Confirmation inside the page (the Claude viewer blocks browser pop-ups).
-function ask(msg, okLabel){
+function askConfirm(msg, okLabel){
   return new Promise(res => {
     const done = v => { scrim.remove(); document.removeEventListener('keydown', key, true); res(v); };
     const key = e => { if(e.key === 'Escape'){ e.stopPropagation(); done(false); } if(e.key === 'Enter'){ e.preventDefault(); done(true); } };
     const ok = el('button', { class:'btn primary', text: okLabel || 'OK', onclick(){ done(true); } });
     const scrim = el('div', { class:'scrim', onmousedown(e){ if(e.target === scrim) done(false); } },
-      el('div', { class:'modal', role:'alertdialog', 'aria-modal':'true' }, el('p', { text: msg }),
-        el('div', { class:'modal-btns' }, el('button', { class:'btn', text:'Cancel', onclick(){ done(false); } }), ok)));
+      el('div', { class:'modal confirm', role:'alertdialog', 'aria-modal':'true' },
+        el('div', { class:'modal-b' }, el('p', { class:'confirm-msg', text: msg }),
+          el('div', { class:'confirm-btns' }, el('button', { class:'btn', text:'Cancel', onclick(){ done(false); } }), ok))));
     document.body.append(scrim); document.addEventListener('keydown', key, true); ok.focus();
   });
 }
-let popEl = null;
-function closePop(){ if(popEl){ popEl.remove(); popEl = null; } }
-function popover(anchor, content){
-  closePop();
-  const r = anchor.getBoundingClientRect();
-  popEl = el('div', { class:'pop' }, content); document.body.append(popEl);
-  const pw = popEl.offsetWidth, ph = popEl.offsetHeight;
-  popEl.style.left = Math.max(8, Math.min(window.innerWidth - pw - 8, r.right - pw)) + 'px';
-  popEl.style.top = (r.bottom + ph + 8 > window.innerHeight ? Math.max(8, r.top - ph - 4) : r.bottom + 4) + 'px';
+function modal(title, body, opts){
+  const close = () => { scrim.remove(); if(opts && opts.onClose) opts.onClose(); };
+  const scrim = el('div', { class:'scrim', onmousedown(e){ if(e.target === scrim) close(); } },
+    el('div', { class:'modal' + (opts && opts.cls ? ' ' + opts.cls : ''), role:'dialog', 'aria-modal':'true', 'aria-label':title },
+      el('div', { class:'modal-h' }, el('h3', { text:title }), opts && opts.head, el('button', { class:'icon-btn', 'aria-label':'Close', onclick: close }, icon('close'))),
+      el('div', { class:'modal-b' }, body)));
+  document.body.append(scrim);
+  return { close, scrim };
 }
-document.addEventListener('mousedown', e => { if(popEl && !popEl.contains(e.target)) closePop(); });
+function blobToDataURL(b){ return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(b); }); }
+function dataURLtoBlob(d){
+  const [h, b64] = d.split(','); const mime = (h.match(/data:([^;]+)/) || [])[1] || 'application/octet-stream';
+  const bin = atob(b64); const u = new Uint8Array(bin.length); for(let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return new Blob([u], { type: mime });
+}
+function saveFile(name, text, type){
+  const a = el('a', { href: URL.createObjectURL(new Blob([text], { type: type || 'text/html' })), download: name });
+  document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+const slug = s => (s || 'project').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'project';
 
 /* =====================================================================
-   CORE · dates and times
+   CORE · config, source, role
    ===================================================================== */
-const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const MONTH = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-const pad2 = n => String(n).padStart(2, '0');
-const localDay = d => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
-const parseDay = s => new Date(s + 'T00:00:00');
-const addDays = (s, n) => { const d = parseDay(s); d.setDate(d.getDate() + n); return localDay(d); };
-const today = () => localDay(new Date());
-const nowMin = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
-const daysBetween = (a, b) => Math.round((parseDay(b) - parseDay(a)) / 86400000);
-const toHM = m => pad2(Math.floor(m / 60)) + ':' + pad2(m % 60);
-function fromHM(s){
-  const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '').trim()); if(!m) return null;
-  const h = +m[1], mi = +m[2];
-  if(h > 24 || mi > 59 || (h === 24 && mi)) return null;
-  return h * 60 + mi;
+const CFG = Object.assign({ clientId:'', apiKey:'' }, window.DW_CONFIG || {});
+const HAS_GOOGLE = !!CFG.clientId, HAS_KEY = !!CFG.apiKey;
+const FONT_LINK = '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap">';
+const SRC = { css: $('#app-css').textContent, js: $('#app-js').textContent, tpl: JSON.parse($('#tpl-data').textContent) };
+const EMBED = (() => { const e = $('#dw-embedded'); try { return e ? JSON.parse(e.textContent) : null; } catch(err){ return null; } })();
+const VIEW_ID = new URLSearchParams(location.search).get('p');
+const ROLE = EMBED ? 'offline' : VIEW_ID ? 'viewer' : 'owner';
+const canEdit = () => ROLE === 'owner';
+const TAB_IDS = ['moodboard', 'scope', 'gantt', 'notes'];
+// Tabs shown for a project. A project's schedule now lives on the planner's Timeline (index.html), so its Gantt tab is hidden;
+// its data is kept as it was.
+const SHOW_TABS = ['moodboard', 'scope', 'notes'];
+let W = null;
+
+function buildOfflineDoc(p){
+  return '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
+    + '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
+    + '<title>' + esc(p.name || 'Project') + '</title>\n' + FONT_LINK + '\n'
+    + '<style id="app-css">' + SRC.css + '<\/style>\n</head>\n<body>\n<div id="app"></div>\n'
+    + '<script type="application/json" id="dw-embedded">' + safeJSON({ v:2, exportedAt: nowISO(), project: p }) + '<\/script>\n'
+    + '<script type="application/json" id="tpl-data">' + safeJSON(SRC.tpl) + '<\/script>\n'
+    + '<script id="app-js">' + SRC.js + '<\/script>\n</body>\n</html>\n';
 }
-function fmtT(m, noMer){
-  const h = Math.floor(m / 60) % 24, mi = m % 60;
-  return (h % 12 || 12) + (mi ? ':' + pad2(mi) : '') + (noMer ? '' : (h >= 12 ? ' PM' : ' AM'));
-}
-const mer = m => (m % 1440) < 720 ? 'AM' : 'PM';
-const fmtRange = (a, b) => mer(a) === mer(b) && b - a < 720 ? fmtT(a, true) + '–' + fmtT(b) : fmtT(a) + ' – ' + fmtT(b);
-function fmtDur(m){ const h = Math.floor(m / 60), mi = m % 60; return (h ? h + ' h' : '') + (h && mi ? ' ' : '') + (mi ? mi + ' min' : '') || '0 min'; }
-const fmtHours = m => (Math.round(m / 6) / 10) + ' h';
-const sameYear = s => parseDay(s).getFullYear() === new Date().getFullYear();
-const dayTitle = s => { const d = parseDay(s); return DOW[d.getDay()] + ', ' + MONTH[d.getMonth()] + ' ' + d.getDate() + (sameYear(s) ? '' : ', ' + d.getFullYear()); };
-const dayShort = s => { const d = parseDay(s); return DOW[d.getDay()].slice(0, 3) + ', ' + MON[d.getMonth()] + ' ' + d.getDate(); };
-const fmtD = d => MON[d.getMonth()] + ' ' + d.getDate();
-const fmtLong = d => d.toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric', year:'numeric' });
-function relDay(s){ const n = daysBetween(today(), s); return n === 0 ? 'Today' : n === -1 ? 'Yesterday' : n === 1 ? 'Tomorrow' : ''; }
-const weekStart = s => { const d = parseDay(s); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return localDay(d); };
-const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
 
 /* =====================================================================
-   DATA · days (hour-by-hour blocks), timeline tasks (work that spans days) and the project
-   Stored in this artifact's database: days/<YYYY-MM-DD>, tasks/<id> and project/plan.
+   CORE · appearance (per viewer)
    ===================================================================== */
-const DAYS = new Map(), TASKS = new Map();
-let PROJECT = null;          // { name, phases:[{ id, name, color }], drive, createdAt }
-const COLORS = ['#2783DE','#9B6DD4','#D5803B','#46A171','#E56458','#4FB9C9','#DE9255','#7D7A75'];
-const STATUS = { todo:'To do', doing:'In progress', done:'Done' };
-const PRIORITY = { h:'High', m:'Medium', l:'Low' };
-const isDay = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
-
-function normStep(s){ return { id: s.id || uid(), text: String(s.text || '').slice(0, 200), mins: +s.mins > 0 ? Math.round(+s.mins) : null, done: !!s.done }; }
-function normBlock(b){
-  b.id = String(b.id || uid());
-  b.title = typeof b.title === 'string' ? b.title : '';
-  b.start = clamp(Math.round(+b.start || 0), 0, 1425);
-  b.end = clamp(Math.round(+b.end || b.start + 30), b.start + 5, 1440);
-  if(!['todo', 'doing', 'done'].includes(b.status)) b.status = 'todo';
-  b.steps = Array.isArray(b.steps) ? b.steps.filter(s => s && typeof s === 'object').map(normStep) : [];
-  return b;
+const FONTS = {
+  default:  { label:'Default',  stack:"-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" },
+  serif:    { label:'Serif',    stack:"'Source Serif 4',Georgia,'Times New Roman',serif" },
+  mono:     { label:'Mono',     stack:"'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace" },
+  readable: { label:'Readable', stack:"'Atkinson Hyperlegible',Verdana,Tahoma,sans-serif" }
+};
+let PREF = (() => { try { return Object.assign({ theme:'light', font:'default' }, JSON.parse(LS.get('ws-prefs') || '{}')); } catch(e){ return { theme:'light', font:'default' }; } })();
+const mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+const isDark = () => PREF.theme === 'dark' || (PREF.theme === 'system' && mq && mq.matches);
+const fontStack = () => (FONTS[PREF.font] || FONTS.default).stack;
+function applyPrefs(){
+  const r = document.documentElement;
+  if(PREF.theme === 'system') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', PREF.theme);
+  r.style.setProperty('--font', fontStack());
+  frames.forEach(f => { postFrame(f, { type:'theme', dark:isDark() }); postFrame(f, { type:'font', font:fontStack() }); });
 }
-function normDay(d, id){
-  d = d && typeof d === 'object' ? d : {};
-  d.date = id;
-  d.focus = typeof d.focus === 'string' ? d.focus : '';
-  d.blocks = Array.isArray(d.blocks) ? d.blocks.filter(b => b && typeof b === 'object').map(normBlock) : [];
-  return d;
-}
-function normTask(t, id){
-  t = t && typeof t === 'object' ? t : {};
-  t.id = String(id || t.id || uid());
-  t.name = typeof t.name === 'string' ? t.name : '';
-  t.phaseId = t.phaseId ? String(t.phaseId) : null;
-  t.start = isDay(t.start) ? t.start : today();
-  t.end = isDay(t.end) && t.end >= t.start ? t.end : t.start;
-  t.milestone = !!t.milestone; if(t.milestone) t.end = t.start;
-  if(!['todo', 'doing', 'done'].includes(t.status)) t.status = 'todo';
-  if(!PRIORITY[t.priority]) t.priority = 'm';
-  t.note = typeof t.note === 'string' ? t.note : '';
-  t.files = Array.isArray(t.files) ? t.files.filter(f => f && typeof f === 'object' && f.name) : [];
-  return t;
-}
-const blank = date => ({ date, focus:'', blocks:[] });
-const getDay = date => DAYS.get(date) || null;
-function ensureDay(date){ let d = DAYS.get(date); if(!d){ d = blank(date); DAYS.set(date, d); } return d; }
-const sortBlocks = d => d.blocks.sort((a, b) => a.start - b.start || a.end - b.end);
-const minsOf = list => list.reduce((s, b) => s + b.end - b.start, 0);
-const newProject = () => ({ name:'My project', phases:[], drive:null, createdAt: nowISO() });
-const phases = () => (PROJECT && Array.isArray(PROJECT.phases)) ? PROJECT.phases : [];
-const phaseOf = t => t && t.phaseId ? phases().find(p => p.id === t.phaseId) || null : null;
-const taskById = id => (id && TASKS.get(id)) || null;
-const taskColor = t => (phaseOf(t) || {}).color || '#7D7A75';
-const blockColor = b => { const t = taskById(b.taskId); return t ? taskColor(t) : 'var(--acc)'; };
-const fmtDay = s => fmtD(parseDay(s)) + (sameYear(s) ? '' : ', ' + s.slice(0, 4));
-const taskSpan = t => fmtDay(t.start) + (t.end > t.start ? ' – ' + fmtDay(t.end) : '');
-function addPhase(name){
-  PROJECT = PROJECT || newProject();
-  PROJECT.phases = phases().slice();
-  const ph = { id: uid().slice(0, 6), name: name || 'New phase', color: COLORS[PROJECT.phases.length % COLORS.length] };
-  PROJECT.phases.push(ph); saveProject(0);
-  return ph;
-}
-function createTask(props){
-  const t = normTask(Object.assign({ name:'', start: today(), end: addDays(today(), 2), status:'todo', priority:'m', createdAt: nowISO() }, props), uid());
-  if(t.status === 'doing') t.startedAt = nowISO();
-  if(t.status === 'done') t.doneAt = nowISO();
-  TASKS.set(t.id, t); saveTask(t, 0);
-  return t;
-}
-function setTaskStatus(t, s){
-  if(t.status === s) return;
-  if(s === 'done') t.doneAt = nowISO();
-  if(s === 'doing' && !t.startedAt) t.startedAt = nowISO();
-  t.status = s; saveTask(t, 0);
-  renderView(); if(ui.drawer === 'task' && ui.task === t.id) renderDrawer();
-}
-// Day blocks linked to a task: when you worked on it.
-function loggedFor(id){
-  const out = [];
-  DAYS.forEach(d => d.blocks.forEach(b => { if(b.taskId === id) out.push({ date: d.date, d, b }); }));
-  return out.sort((a, b) => b.date.localeCompare(a.date) || a.b.start - b.b.start);
-}
-const fmtSize = n => n < 1024 ? n + ' B' : n < 1048576 ? Math.round(n / 1024) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
-function linkLabel(url){
-  try {
-    const u = new URL(url);
-    if(u.hostname === 'docs.google.com'){ const k = u.pathname.split('/')[1]; return { document:'Google Doc', spreadsheets:'Google Sheet', presentation:'Google Slides', forms:'Google Form' }[k] || 'Google Docs'; }
-    if(u.hostname === 'drive.google.com') return 'Google Drive';
-    return u.hostname.replace(/^www\./, '');
-  } catch(e){ return 'Link'; }
+function setPref(k, v){ PREF[k] = v; LS.set('ws-prefs', JSON.stringify(PREF)); applyPrefs(); renderSidebar(); }
+if(mq && mq.addEventListener) mq.addEventListener('change', () => { if(PREF.theme === 'system') applyPrefs(); });
+function appearanceControls(onChange){
+  const wrap = el('div', { class:'appearance' });
+  const draw = () => {
+    wrap.textContent = '';
+    wrap.append(el('div', { class:'seg', role:'group', 'aria-label':'Theme' },
+      [['light','Light'], ['dark','Dark'], ['system','System']].map(([k, l]) => el('button', { class: PREF.theme === k ? 'on' : '', text:l, 'aria-pressed':String(PREF.theme === k), onclick(){ setPref('theme', k); draw(); onChange && onChange(); } }))));
+    wrap.append(el('div', { class:'fonts', role:'group', 'aria-label':'Font' },
+      Object.keys(FONTS).map(k => el('button', { class: PREF.font === k ? 'on' : '', 'aria-pressed':String(PREF.font === k), title: FONTS[k].label, onclick(){ setPref('font', k); draw(); onChange && onChange(); } },
+        el('span', { class:'aa', text:'Ag', style:{ fontFamily: FONTS[k].stack } }), el('span', { class:'fl', text:FONTS[k].label })))));
+  };
+  draw(); return wrap;
 }
 
 /* =====================================================================
-   STORE · this browser (IndexedDB) and your Google Drive
-   Everything lives in one file, planner.json, in the “Anium.planning” folder of your Drive.
-   Days, tasks and the project each carry an updatedAt time; deletions leave a dated marker.
-   Syncing merges the two copies item by item, newest wins, so several devices can share it.
+   STORAGE · this computer (IndexedDB cache)
    ===================================================================== */
 const IDB = {
   db: null,
@@ -229,16 +204,26 @@ const IDB = {
     });
   },
   async get(k){ const db = await this.open(); return new Promise((res, rej) => { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); },
-  async set(k, v){ const db = await this.open(); return new Promise((res, rej) => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put(v, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
+  async set(k, v){ const db = await this.open(); return new Promise((res, rej) => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put(v, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); },
+  async del(k){ const db = await this.open(); return new Promise((res, rej) => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').delete(k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
 };
+let cacheOK = true;
+async function saveCache(){
+  try { await IDB.set('workspace', plain(W)); cacheOK = true; } catch(e){ cacheOK = false; }
+}
+
+/* =====================================================================
+   STORAGE · Google Drive (only files this app creates)
+   ===================================================================== */
 const API = 'https://www.googleapis.com/drive/v3', UP = 'https://www.googleapis.com/upload/drive/v3';
+const publicMediaURL = id => API + '/files/' + encodeURIComponent(id) + '?alt=media&key=' + encodeURIComponent(CFG.apiKey);
 // Sign-in lives on this site's server (api/auth/*): Google is visited once, the server keeps the
 // sign-in in a secure cookie, and hands out short-lived Drive access whenever the app asks.
 const AUTH = '/api/auth/';
 const Drive = {
-  token: null, exp: 0, rootId: null, plannerId: null, filesId: null, refreshing: null,
+  token: null, exp: 0, rootId: null, indexId: null, refreshing: null,
   ok(){ return !!this.token && Date.now() < this.exp; },
-  connect(){ location.assign(AUTH + 'start'); return new Promise(() => {}); },
+  connect(){ location.assign(AUTH + 'start?next=projects'); return new Promise(() => {}); },
   refresh(){
     if(!this.refreshing) this.refreshing = (async () => {
       let r;
@@ -253,7 +238,7 @@ const Drive = {
   },
   async signOut(){
     try { await fetch(AUTH + 'logout', { method:'POST' }); } catch(e){}
-    this.token = null; this.rootId = null; this.plannerId = null; this.filesId = null; LS.del('dw-drive');
+    this.token = null; this.rootId = null; this.indexId = null; LS.del('dw-drive');
   },
   async req(method, url, body, headers, retried){
     if(!this.ok()) await this.refresh();
@@ -293,1475 +278,1377 @@ const Drive = {
     return r.json();
   },
   async readJSON(id){ const r = await this.req('GET', API + '/files/' + id + '?alt=media'); return r instanceof Blob ? JSON.parse(await r.text()) : r; },
+  async readImage(id){ const r = await this.req('GET', API + '/files/' + id + '?alt=media'); return blobToDataURL(r); },
   async ensureRoot(){
-    if(this.rootId) return this.rootId;
+    if(this.rootId) return;
     let f = await this.findOne("appProperties has { key='dw' and value='root' }");
     if(!f) f = await this.folder('Anium.planning', null, { dw:'root' });
     this.rootId = f.id;
-    const p = await this.findOne("appProperties has { key='dw' and value='planner' }");
-    this.plannerId = p ? p.id : null;
-    return this.rootId;
+    const ix = await this.findOne("appProperties has { key='dw' and value='index' }");
+    this.indexId = ix ? ix.id : null;
   },
-  async ensureFilesFolder(){
-    if(this.filesId) return this.filesId;
-    await this.ensureRoot();
-    let f = await this.findOne("appProperties has { key='dw' and value='files' }");
-    if(!f) f = await this.folder('Attachments', this.rootId, { dw:'files' });
-    return (this.filesId = f.id);
-  }
+  async saveIndex(){
+    const data = { v:2, title: W.title, order: W.projects.map(p => p.id), projects: {} };
+    W.projects.forEach(p => { if(p.drive && p.drive.fileId) data.projects[p.id] = { fileId: p.drive.fileId, folderId: p.drive.folderId, name: p.name }; });
+    const blob = new Blob([JSON.stringify(data)], { type:'application/json' });
+    if(this.indexId) await this.update(this.indexId, blob);
+    else { const r = await this.upload({ name:'workspace.json', parents:[this.rootId], appProperties:{ dw:'index' } }, blob); this.indexId = r.id; }
+  },
+  async saveProject(p){
+    p.drive = p.drive || {};
+    if(!p.drive.folderId){
+      const f = await this.folder(p.name || 'Untitled project', this.rootId, { dwProject: p.id });
+      p.drive.folderId = f.id; p.drive.folderName = p.name; W._indexDirty = true;
+    } else if(p.drive.folderName !== p.name){
+      await this.json('PATCH', '/files/' + p.drive.folderId + '?fields=id', { name: p.name || 'Untitled project' });
+      p.drive.folderName = p.name; W._indexDirty = true;
+    }
+    for(const im of Object.values(p.images)){
+      if(im.src && !im.driveId){
+        const blob = dataURLtoBlob(im.src);
+        const ext = blob.type === 'image/png' ? '.png' : blob.type === 'image/webp' ? '.webp' : blob.type === 'image/gif' ? '.gif' : '.jpg';
+        const r = await this.upload({ name: 'picture-' + im.id + ext, parents:[p.drive.folderId] }, blob);
+        im.driveId = r.id;
+      }
+    }
+    for(const f of Object.values(p.files || {})){
+      if(f.driveId) continue;
+      let blob = null; try { blob = await IDB.get('file:' + f.id); } catch(e){}
+      if(!blob) continue; // added on another device and not uploaded yet
+      const r = await this.uploadLarge({ name: f.name, parents:[p.drive.folderId], appProperties:{ dwFile: f.id } }, blob);
+      f.driveId = r.id;
+    }
+    for(const id of (p._trash || []).splice(0)){ try { await this.json('PATCH', '/files/' + id, { trashed:true }); } catch(e){} }
+    const blob = new Blob([JSON.stringify(serializeProject(p))], { type:'application/json' });
+    if(p.drive.fileId) await this.update(p.drive.fileId, blob);
+    else { const r = await this.upload({ name:'project.json', parents:[p.drive.folderId], appProperties:{ dw:'project', dwProject:p.id } }, blob); p.drive.fileId = r.id; W._indexDirty = true; }
+    p._dirty = false;
+  },
+  async setShared(p, on){
+    if(on){ const r = await this.json('POST', '/files/' + p.drive.folderId + '/permissions?fields=id', { type:'anyone', role:'reader', allowFileDiscovery:false }); p.drive.permId = r.id; p.drive.shared = true; }
+    else {
+      try { await this.req('DELETE', API + '/files/' + p.drive.folderId + '/permissions/' + (p.drive.permId || 'anyoneWithLink')); }
+      catch(e){ if(!(e && e.status === 404)) throw e; }
+      p.drive.shared = false; p.drive.permId = null;
+    }
+  },
+  trash(id){ return this.json('PATCH', '/files/' + id, { trashed:true }); }
 };
+function serializeProject(p){
+  const q = plain(p);
+  Object.values(q.images || {}).forEach(im => { if(im.driveId) delete im.src; });
+  return q;
+}
 
-let mode = 'connecting', canWrite = true, loaded = { days:false, project:false, tasks:false };
-let driveOn = false, syncState = 'local', lastSync = null;
-let DELETED = {};                       // 'tasks/<id>' -> ISO time it was deleted
-let localDirty = false, driveDirty = false, localTimer = null, pushTimer = null, pushing = null;
-const isDirty = () => false;            // kept for the shared view code
-function snapshot(){
-  const days = {}, tasks = {};
-  DAYS.forEach((d, k) => { if(d.blocks.length || d.focus || d.updatedAt) days[k] = d; });
-  TASKS.forEach((t, k) => tasks[k] = t);
-  return { v:1, days, tasks, project: PROJECT, deleted: DELETED, importedOld: !!META.importedOld };
+/* =====================================================================
+   CORE · images (per project)
+   ===================================================================== */
+const srcMaps = new Map();
+const srcMap = p => { let m = srcMaps.get(p.id); if(!m){ m = new Map(); srcMaps.set(p.id, m); } return m; };
+function imgURL(p, id){
+  const im = p && p.images && p.images[id]; if(!im) return '';
+  let u = im.src || '';
+  if(!u && im.driveId && ROLE === 'viewer' && HAS_KEY) u = publicMediaURL(im.driveId);
+  if(!u && im.url) u = im.url;
+  if(u) srcMap(p).set(u, id);
+  return u;
 }
-const META = { importedOld:false };
-function persist(path, data, delay){
-  if(!canWrite) return;
-  localDirty = true; driveDirty = true;
-  clearTimeout(localTimer); localTimer = setTimeout(saveLocal, 300);
-  schedulePush(Math.max(800, delay == null ? 1500 : delay));
-  renderSaveState();
-}
-function removeDoc(path){ DELETED[path] = nowISO(); persist(path); }
-const saveDay = (d, delay) => { d.updatedAt = nowISO(); persist('days/' + d.date, d, delay); };
-const saveProject = delay => { if(!PROJECT) return; PROJECT.updatedAt = nowISO(); persist('project/plan', PROJECT, delay); };
-const saveTask = (t, delay) => { t.updatedAt = nowISO(); persist('tasks/' + t.id, t, delay); };
-let cacheOK = true;
-async function saveLocal(){
-  clearTimeout(localTimer);
-  try { await IDB.set('planner', JSON.parse(JSON.stringify(snapshot()))); localDirty = false; cacheOK = true; }
-  catch(e){ cacheOK = false; }
-  renderSaveState();
-}
-function applyData(data){
-  let changed = false;
-  if(!data) return false;
-  const days = data.days || {}, tasks = data.tasks || {};
-  Object.keys(days).forEach(k => { const cur = DAYS.get(k); if(cur !== days[k]){ DAYS.set(k, normDay(clone(days[k]), k)); changed = true; } });
-  [...DAYS.keys()].forEach(k => { if(!days[k] && (DAYS.get(k).updatedAt || DAYS.get(k).blocks.length)){ DAYS.delete(k); changed = true; } });
-  Object.keys(tasks).forEach(k => { const cur = TASKS.get(k); if(cur !== tasks[k]){ TASKS.set(k, normTask(clone(tasks[k]), k)); changed = true; } });
-  [...TASKS.keys()].forEach(k => { if(!tasks[k]){ TASKS.delete(k); changed = true; } });
-  if(data.project !== PROJECT){ PROJECT = data.project ? clone(data.project) : PROJECT; changed = true; }
-  DELETED = Object.assign({}, data.deleted || {});
-  if(data.importedOld) META.importedOld = true;
-  return changed;
-}
-// Newest copy of each day, task and the project wins; deletions win over older copies.
-function mergeData(local, remote){
-  if(!remote) return local;
-  const del = Object.assign({}, remote.deleted || {});
-  Object.keys(local.deleted || {}).forEach(k => { if(!del[k] || local.deleted[k] > del[k]) del[k] = local.deleted[k]; });
-  const old = addDays(today(), -120);
-  Object.keys(del).forEach(k => { if(del[k].slice(0, 10) < old) delete del[k]; });
-  const pick = (a, b) => !a ? b : !b ? a : ((a.updatedAt || '') >= (b.updatedAt || '') ? a : b);
-  const out = { v:1, days:{}, tasks:{}, project: pick(local.project, remote.project), deleted: del, importedOld: !!(local.importedOld || remote.importedOld) };
-  ['days', 'tasks'].forEach(col => {
-    const L = local[col] || {}, R = remote[col] || {};
-    new Set([...Object.keys(L), ...Object.keys(R)]).forEach(k => {
-      const e = pick(L[k], R[k]), gone = del[col + '/' + k];
-      if(gone && gone >= (e.updatedAt || '')) return;
-      out[col][k] = e;
-    });
+function compress(src){
+  return new Promise(res => {
+    if(!/^data:image\/(png|jpe?g|webp|bmp)/i.test(src)) return res({ data:src, w:0, h:0 });
+    const im = new Image();
+    im.onload = () => {
+      const w = im.naturalWidth, h = im.naturalHeight, MAX = 2000;
+      const s = Math.min(1, MAX / Math.max(w, h)), cw = Math.round(w * s), ch = Math.round(h * s);
+      if(s === 1 && src.length < 600000) return res({ data:src, w, h });
+      const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+      const g = cv.getContext('2d'); const png = /^data:image\/png/i.test(src);
+      if(!png){ g.fillStyle = '#fff'; g.fillRect(0, 0, cw, ch); }
+      g.drawImage(im, 0, 0, cw, ch);
+      let out = png ? cv.toDataURL('image/png') : cv.toDataURL('image/jpeg', 0.86);
+      if(png && out.length > 900000){ g.globalCompositeOperation = 'destination-over'; g.fillStyle = '#fff'; g.fillRect(0, 0, cw, ch); out = cv.toDataURL('image/jpeg', 0.88); }
+      if(out.length > src.length) out = src;
+      res({ data:out, w:cw, h:ch });
+    };
+    im.onerror = () => res({ data:src, w:0, h:0 });
+    im.src = src;
   });
-  return out;
 }
-function schedulePush(ms){ if(!driveOn) return; clearTimeout(pushTimer); pushTimer = setTimeout(() => { pushTimer = null; push(); }, ms == null ? 1500 : ms); }
-// Reads Drive's copy, merges it with this one, and writes the result back.
-async function push(){
-  if(!driveOn) return;
-  if(pushing){ await pushing; if(!driveDirty) return; }
-  pushing = (async () => {
-    syncState = 'saving'; renderSaveState();
+async function addDataImage(p, src, from){
+  const c = await compress(src);
+  const id = 'i' + hash(c.data);
+  srcMap(p).set(src, id); srcMap(p).set(c.data, id);
+  if(!p.images[id]) p.images[id] = { id, src:c.data, w:c.w, h:c.h, addedAt:nowISO(), caption:'', events:[], url: from || undefined };
+  return id;
+}
+function addUrlImage(p, url){
+  const id = 'u' + hash(url);
+  srcMap(p).set(url, id);
+  if(!p.images[id]){
+    p.images[id] = { id, url, addedAt:nowISO(), caption:'', events:[] };
+    keepCopy(p, id, true);
+  }
+  return id;
+}
+// Gets a picture from another site as a data URL. This site's server does the download (other sites
+// can't block it, and it finds the picture on page links such as Pinterest pins); a direct download is the fallback.
+// Returns null when there's no picture at that address; throws { code:'network' } when nothing could be reached.
+async function downloadPicture(url){
+  let reached = false;
+  for(const [src, opts] of [['/api/image?url=' + encodeURIComponent(url)], [url, { mode:'cors' }]]){
     try {
-      await Drive.ensureRoot();
-      driveDirty = false;
-      const local = snapshot();
-      const remote = Drive.plannerId ? await Drive.readJSON(Drive.plannerId) : null;
-      const merged = mergeData(local, remote);
-      if(applyData(merged)) scheduleRender();
-      const blob = new Blob([JSON.stringify(Object.assign({}, merged, { savedAt: nowISO() }))], { type:'application/json' });
-      if(Drive.plannerId) await Drive.update(Drive.plannerId, blob);
-      else { const r = await Drive.upload({ name:'planner.json', parents:[Drive.rootId], appProperties:{ dw:'planner' } }, blob); Drive.plannerId = r.id; }
-      syncState = 'saved'; lastSync = nowISO();
-      saveLocal();
-    } catch(e){ driveDirty = true; syncError(e); }
-    renderSaveState();
-  })();
-  try { await pushing; } finally { pushing = null; }
+      const r = await fetch(src, opts); reached = reached || r.status < 500;
+      if(!r.ok) continue;
+      const b = await r.blob(); if(/^image\//.test(b.type)) return await blobToDataURL(b);
+    } catch(e){}
+  }
+  if(!reached) throw { code:'network' };
+  return null;
 }
-// What a copy holds, by item and time: two copies with the same signature need no sync.
-function sig(d){
-  if(!d) return '';
-  const a = [];
-  ['days', 'tasks'].forEach(c => Object.keys(d[c] || {}).sort().forEach(k => a.push(c + '/' + k + '@' + ((d[c][k] && d[c][k].updatedAt) || ''))));
-  Object.keys(d.deleted || {}).sort().forEach(k => a.push('x/' + k));
-  a.push('p@' + ((d.project && d.project.updatedAt) || ''), d.importedOld ? 'i' : '');
-  return a.join('|');
-}
-// Picks up changes made on your other devices.
-async function pull(){
-  if(!driveOn || pushing || pushTimer || !Drive.plannerId) return;
+// Keeps our own copy of a web picture, so it never depends on the other site staying up.
+const copying = new Set();
+async function keepCopy(p, id, justAdded){
+  const im = p.images[id], key = p.id + ':' + id;
+  if(!canEdit() || !im || !im.url || im.src || copying.has(key)) return;
+  copying.add(key);
   try {
-    const remote = await Drive.readJSON(Drive.plannerId);
-    const local = snapshot(), merged = mergeData(local, remote);
-    if(applyData(merged)){ scheduleRender(); saveLocal(); }
-    if(sig(merged) !== sig(remote)){ driveDirty = true; schedulePush(500); }
-    syncState = 'saved'; lastSync = nowISO(); renderSaveState();
-  } catch(e){ syncError(e); }
+    let raw;
+    try { raw = await downloadPicture(im.url); } catch(e){ return; } // offline: keep it and try again next time
+    if(!raw){
+      frames.forEach(f => { if(f.pid === p.id) postFrame(f, { type:'img-failed', from: im.url, remove: !!justAdded }); });
+      if(justAdded) toast('Couldn’t get a picture from that address. Right-click the picture on the website → Copy image, then press Ctrl/⌘+V on the board.', 8000);
+      return;
+    }
+    const c = await compress(raw);
+    im.src = c.data; im.w = c.w; im.h = c.h; srcMap(p).set(c.data, id);
+    frames.forEach(f => { if(f.pid === p.id) postFrame(f, { type:'img-swap', from: im.url, to: c.data }); });
+    markChanged(p);
+  } finally { copying.delete(key); }
 }
-function syncError(e){
-  if(e && e.code === 'auth'){ driveOn = false; syncState = 'reconnect'; renderAll(); }
-  else if(e && e.code === 'network'){ syncState = 'offline'; schedulePush(15000); }
-  else { syncState = 'error'; console.warn('Drive', e); schedulePush(30000); }
-  renderSaveState();
+// Pictures still saved only as links (the site was down, or the app was offline) get another try every time the app opens.
+function rescuePictures(){
+  if(canEdit()) W.projects.forEach(p => Object.values(p.images).forEach(im => { if(im.url && !im.src && !im.driveId) keepCopy(p, im.id); }));
 }
-function renderSaveState(){
-  const s = shell.save; if(!s) return;
-  const busy = localDirty || driveDirty || syncState === 'saving';
-  s.className = 'save-state' + (['offline', 'error', 'reconnect'].includes(syncState) ? ' err' : '');
-  s.textContent = mode === 'connecting' ? 'Loading…'
-    : !canWrite ? 'View only'
-    : syncState === 'reconnect' ? 'Reconnect Google Drive'
-    : !driveOn ? (cacheOK ? 'Saved in this browser' : 'Not saved')
-    : syncState === 'offline' ? 'Offline · will sync'
-    : syncState === 'error' ? 'Not synced yet'
-    : busy ? 'Saving…' : 'Saved to Drive';
+/* =====================================================================
+   CORE · attachments (files on Gantt tasks and phases)
+   The file itself is kept in this browser (IndexedDB) and uploaded to the project's Drive folder;
+   the project only stores its name, size and Drive id.
+   ===================================================================== */
+const MAX_FILE = 200 * 1024 * 1024;
+async function addFiles(p, files){
+  const items = [];
+  for(const file of files){
+    if(!(file instanceof Blob)) continue;
+    if(file.size > MAX_FILE){ toast('“' + file.name + '” is over 200 MB. Put it in Google Drive and attach a link to it instead.', 7000); continue; }
+    const meta = { id: 'f' + uid() + uid(), name: file.name || 'file', type: file.type || '', size: file.size, addedAt: nowISO() };
+    try { await IDB.set('file:' + meta.id, file); }
+    catch(e){ toast('Couldn’t save “' + meta.name + '” in this browser. It may be out of space.', 6000); continue; }
+    p.files[meta.id] = meta;
+    items.push(meta);
+  }
+  if(items.length){
+    markChanged(p);
+    if(!driveOn) toast('Attached. Connect Google Drive to keep attachments safe and available on your other devices.', 6000);
+  }
+  return items;
 }
-let renderQueued = false;
-function scheduleRender(){ if(renderQueued) return; renderQueued = true; requestAnimationFrame(() => { renderQueued = false; renderAll(true); }); }
-
-// Gantt tasks from the earlier version of Anium.planning come onto the timeline once.
-// Their ids are derived from the old ones, so importing from this browser and from Drive never doubles them.
-function importOldProjects(list){
-  let n = 0;
-  const multi = list.length > 1;
-  list.forEach(p => {
-    const g = p && p.mods && p.mods.gantt && p.mods.gantt.data;
-    if(!g || !Array.isArray(g.phases)) return;
-    const start = isDay(g.start) ? g.start : localDay(new Date(p.createdAt || Date.now()));
-    PROJECT = PROJECT || newProject();
-    PROJECT.phases = phases().slice();
-    if(!PROJECT.name || PROJECT.name === 'My project') PROJECT.name = p.name || PROJECT.name;
-    g.phases.forEach((ph, i) => {
-      const pid = 'o' + p.id + '-' + ph.id;
-      if(!PROJECT.phases.some(x => x.id === pid)) PROJECT.phases.push({ id: pid, name: (multi ? (p.name || 'Project') + ' · ' : '') + (ph.name || 'Phase'), color: ph.color || COLORS[i % COLORS.length] });
-      (ph.tasks || []).forEach(t => {
-        const id = 'o' + p.id + '-' + t.id;
-        if(TASKS.has(id)) return;
-        const files = (t.files || []).map(f => {
-          if(f.kind === 'link') return { id: f.id || uid(), kind:'link', url: f.url, name: f.name, addedAt: f.addedAt };
-          const m = p.files && p.files[f.id];
-          return m && m.driveId ? { id: f.id, kind:'file', name: f.name || m.name, size: m.size, type: m.type, addedAt: m.addedAt, driveId: m.driveId, url:'https://drive.google.com/file/d/' + m.driveId + '/view' } : null;
-        }).filter(Boolean);
-        const task = normTask({ name: t.name, phaseId: pid, start: addDays(start, +t.start || 0), end: addDays(start, +t.end || 0), status: t.done ? 'done' : t.status === 'doing' ? 'doing' : 'todo',
-          priority: t.priority, milestone: t.milestone, note: t.note, files, doneAt: t.doneAt, startedAt: t.startedAt, createdAt: p.createdAt || nowISO(), updatedAt: nowISO() }, id);
-        TASKS.set(id, task); n++;
-      });
-    });
+async function openFile(p, id){
+  const f = p.files && p.files[id];
+  if(!f){ toast('That attachment isn’t available any more.', 4000); return; }
+  if(f.driveId){ window.open('https://drive.google.com/file/d/' + encodeURIComponent(f.driveId) + '/view', '_blank', 'noopener'); return; }
+  let blob = null; try { blob = await IDB.get('file:' + id); } catch(e){}
+  if(!blob){ toast('This file is still uploading from the computer it was added on. It will be available once that computer saves to Drive.', 7000); return; }
+  const url = URL.createObjectURL(blob);
+  const viewable = /^(image\/|video\/|audio\/|text\/plain|application\/pdf)/.test(f.type);
+  const a = el('a', { href: url, target:'_blank', rel:'noopener' }); if(!viewable) a.download = f.name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+function pruneFiles(p){
+  const refs = new Set();
+  [p.mods.gantt.data].concat((p.history || []).filter(h => h.mod === 'gantt').map(h => h.snap)).forEach(d => MODULES.gantt.fileRefs(d).forEach(id => refs.add(id)));
+  Object.keys(p.files || {}).forEach(id => {
+    if(refs.has(id)) return;
+    const f = p.files[id];
+    if(f.driveId) p._trash = (p._trash || []).concat(f.driveId);
+    delete p.files[id];
+    IDB.del('file:' + id).catch(() => {});
   });
-  if(n){ PROJECT.updatedAt = nowISO(); META.importedOld = true; persist('import'); }
-  return n;
 }
-async function importOldFromDrive(){
-  const ix = await Drive.findOne("appProperties has { key='dw' and value='index' }");
-  if(!ix) return 0;
-  const index = await Drive.readJSON(ix.id);
-  const ids = ((index && index.order) || Object.keys((index && index.projects) || {})).filter(id => index.projects && index.projects[id]);
-  const list = [];
-  for(const id of ids){ try { list.push(await Drive.readJSON(index.projects[id].fileId)); } catch(e){ if(e && e.code === 'auth') throw e; } }
-  return importOldProjects(list);
+
+async function ensureImages(p){
+  if(ROLE !== 'owner' || !driveOn) return;
+  const need = Object.values(p.images).filter(im => im.driveId && !im.src);
+  for(const im of need){ try { im.src = await Drive.readImage(im.driveId); } catch(e){ if(e && e.code === 'auth') throw e; } }
+  if(need.length) saveCache();
 }
-async function connectDrive(){ await saveLocal(); Drive.connect(); }
-async function signOutDrive(){
-  await push();
-  await Drive.signOut();
-  driveOn = false; syncState = 'local';
-  renderAll();
-  toast('Signed out of Google Drive. Your planner stays saved in your Drive.', 4500);
+function projectImageRefs(p){
+  const refs = new Set();
+  TAB_IDS.forEach(m => (MODULES[m].imageRefs(p.mods[m].data) || []).forEach(r => refs.add(r)));
+  (p.history || []).forEach(h => (MODULES[h.mod].imageRefs(h.snap) || []).forEach(r => refs.add(r)));
+  return refs;
+}
+
+/* =====================================================================
+   CORE · project lifecycle, history, saving
+   ===================================================================== */
+function blankProject(name){
+  const t = nowISO();
+  const p = { id:uid(), name: name || 'Untitled project', icon:'📐', createdAt:t, updatedAt:t, history:[], images:{}, files:{}, mods:{} };
+  TAB_IDS.forEach(m => p.mods[m] = { data: MODULES[m].defaultData(), editedAt:null });
+  return p;
+}
+function localDay(iso){ const d = iso ? new Date(iso) : new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+// Schedules made before start dates were pinned: pin them to the day they were first saved.
+function pinGanttStart(p){
+  const g = p.mods.gantt && p.mods.gantt.data;
+  if(!g || g.start) return false;
+  const first = (p.history || []).filter(h => h.mod === 'gantt').map(h => h.t).sort()[0];
+  g.start = localDay(first || p.mods.gantt.editedAt || p.createdAt);
+  (p.history || []).forEach(h => { if(h.mod === 'gantt' && h.snap && !h.snap.start) h.snap.start = g.start; });
+  return true;
+}
+function prepareProject(p){
+  p.images = p.images || {}; p.files = p.files || {}; p.history = p.history || [];
+  TAB_IDS.forEach(m => { if(!p.mods[m]) p.mods[m] = { data: MODULES[m].defaultData(), editedAt:null }; });
+  if(pinGanttStart(p) && ROLE === 'owner') p._dirty = true;
+  p._norm = {}; p._base = {};
+  TAB_IDS.forEach(m => { p._norm[m] = JSON.stringify(MODULES[m].normalize(p.mods[m].data)); p._base[m] = clone(p.mods[m].data); });
+  p._refs = new Set(MODULES.moodboard.imageRefs(p.mods.moodboard.data));
+  p._picks = pickMap(p);
+  return p;
+}
+function pickMap(p){ const m = {}; ((p.mods.scope.data && p.mods.scope.data.options) || []).forEach(o => { if(o.img) m[o.id] = o.img; }); return m; }
+const restoreNotes = {};
+const GROUP_MS = 10 * 60 * 1000;
+function recordHistory(p){
+  const t = nowISO();
+  TAB_IDS.forEach(m => {
+    const M = MODULES[m], cur = p.mods[m].data, n = JSON.stringify(M.normalize(cur));
+    if(p._norm[m] === n) return;
+    p._norm[m] = n;
+    const list = p.history.filter(h => h.mod === m), last = list[list.length - 1], prev = list[list.length - 2];
+    const note = restoreNotes[p.id + ':' + m]; delete restoreNotes[p.id + ':' + m];
+    if(last && !note && !last.restore && Date.now() - new Date(last.t).getTime() < GROUP_MS){
+      last.t = t; last.snap = clone(cur); last.summary = M.summarize(prev ? prev.snap : p._base[m], cur) || 'Edited';
+    } else {
+      p.history.push({ id:uid(), t, mod:m, summary: note || M.summarize(last ? last.snap : p._base[m], cur) || 'Edited', snap: clone(cur), restore: !!note || undefined });
+    }
+    const all = p.history.filter(h => h.mod === m);
+    if(all.length > 30){ const drop = new Set(all.slice(0, all.length - 30).map(h => h.id)); p.history = p.history.filter(h => !drop.has(h.id)); }
+  });
+}
+function recordImageEvents(p){
+  const t = nowISO();
+  const ev = (id, text) => { const im = p.images[id]; if(im){ im.events = (im.events || []).concat({ t, text }).slice(-30); } };
+  const refs = new Set(MODULES.moodboard.imageRefs(p.mods.moodboard.data));
+  refs.forEach(id => { if(!p._refs.has(id)){ const im = p.images[id]; ev(id, im && im.url ? 'Added to the mood board from ' + host(im.url) : 'Added to the mood board'); } });
+  p._refs.forEach(id => { if(!refs.has(id)) ev(id, 'Removed from the mood board'); });
+  p._refs = refs;
+  const picks = pickMap(p), opts = (p.mods.scope.data && p.mods.scope.data.options) || [];
+  Object.keys(picks).forEach(oid => { if(p._picks[oid] !== picks[oid]){ const o = opts.find(x => x.id === oid); ev(picks[oid], 'Picked for “' + ((o && o.title) || 'Untitled option') + '”'); } });
+  p._picks = picks;
+}
+function pruneImages(p){
+  const refs = projectImageRefs(p);
+  Object.keys(p.images).forEach(id => {
+    if(refs.has(id)) return;
+    const im = p.images[id];
+    if(im.driveId){ p._trash = (p._trash || []).concat(im.driveId); }
+    delete p.images[id];
+  });
+}
+
+let driveOn = false, syncState = HAS_GOOGLE ? 'local' : 'local', lastSync = null, flushTimer = null, flushing = null, ingestChain = Promise.resolve();
+function markChanged(p){
+  if(!canEdit()) return;
+  if(p){ p.updatedAt = nowISO(); p._dirty = true; p.pristine = undefined; } else W._indexDirty = true;
+  scheduleFlush(); renderStatus(); renderTabs();
+}
+function setModData(pid, mod, data){
+  const p = W.projects.find(x => x.id === pid); if(!p) return;
+  const N = MODULES[mod].normalize;
+  const same = JSON.stringify(N(p.mods[mod].data)) === JSON.stringify(N(data));
+  p.mods[mod].data = data;
+  if(!same){ p.mods[mod].editedAt = nowISO(); markChanged(p); }
+}
+function scheduleFlush(ms){ clearTimeout(flushTimer); flushTimer = setTimeout(() => { flushTimer = null; flush(); }, ms == null ? 1500 : ms); }
+async function flush(){
+  if(!canEdit()) return;
+  if(flushing){ await flushing; if(!W.projects.some(p => p._dirty) && !W._indexDirty) return; }
+  flushing = (async () => {
+    await ingestChain;
+    W.projects.forEach(p => { recordHistory(p); recordImageEvents(p); if(driveOn){ pruneImages(p); pruneFiles(p); } });
+    await saveCache();
+    if(driveOn){
+      syncState = 'saving'; renderStatus();
+      try {
+        for(const p of W.projects) if(p._dirty){ await Drive.saveProject(p); scheduleReport(p); }
+        if(W._indexDirty){ await Drive.saveIndex(); W._indexDirty = false; }
+        syncState = 'saved'; lastSync = nowISO();
+        await saveCache();
+      } catch(e){ driveError(e); }
+    } else syncState = 'local';
+    renderStatus(); renderTabs();
+  })();
+  try { await flushing; } finally { flushing = null; }
+}
+function driveError(e){
+  if(e && e.code === 'auth'){ driveOn = false; syncState = 'reconnect'; }
+  else if(e && e.code === 'network'){ syncState = 'offline'; scheduleFlush(15000); }
+  else { syncState = 'error'; console.warn('Drive error', e); }
+  renderStatus();
+}
+async function connectDrive(){
+  if(!HAS_GOOGLE){ toast('Google Drive isn’t set up yet. Follow SETUP.md in the repo.', 5000); return; }
+  await flush();
+  Drive.connect();
 }
 // Tries the saved sign-in; quietly keeps retrying while offline.
 function resumeDrive(){
-  Drive.refresh().then(startSync, e => {
+  Drive.refresh().then(syncWithDrive, e => {
     if(e && e.code === 'network'){ setTimeout(resumeDrive, 15000); return; }
-    if(LS.get('dw-drive') === '1'){ syncState = 'reconnect'; renderAll(); }
+    if(LS.get('dw-drive') === '1'){ syncState = 'reconnect'; renderSidebar(); renderStatus(); renderHeader(); }
   });
 }
-async function startSync(){
-  driveOn = true; syncState = 'saving'; renderAll();
+async function signOutDrive(){
+  await flush();
+  await Drive.signOut();
+  driveOn = false; syncState = 'local';
+  renderSidebar(); renderStatus(); renderHeader();
+  toast('Signed out of Google Drive. Your projects stay saved in your Drive.', 4500);
+}
+async function syncWithDrive(){
+  syncState = 'saving'; renderStatus();
   try {
     await Drive.ensureRoot();
-    if(Drive.plannerId){
-      const remote = await Drive.readJSON(Drive.plannerId);
-      if(applyData(mergeData(snapshot(), remote))) scheduleRender();
-      if(remote && remote.importedOld) META.importedOld = true;
+    const ix = Drive.indexId ? await Drive.readJSON(Drive.indexId) : null;
+    if(ix && ix.projects){
+      const remoteIds = (ix.order || Object.keys(ix.projects)).filter(id => ix.projects[id]);
+      if(remoteIds.length){ W.projects = W.projects.filter(p => !(p.pristine && !p.drive)); }
+      if(ix.title && !W._indexDirty) W.title = renamed(ix.title);
+      for(const pid of remoteIds){
+        const meta = ix.projects[pid];
+        let remote; try { remote = await Drive.readJSON(meta.fileId); } catch(e){ if(e && e.code === 'auth') throw e; continue; }
+        remote.drive = Object.assign({}, remote.drive || {}, { fileId: meta.fileId, folderId: meta.folderId });
+        const local = W.projects.find(x => x.id === pid);
+        if(local && local._dirty && (local.updatedAt || '') > (remote.updatedAt || '')){ local.drive = Object.assign({}, remote.drive, local.drive || {}); continue; }
+        if(local) Object.values(remote.images || {}).forEach(im => { const li = local.images[im.id]; if(li && li.src) im.src = li.src; });
+        prepareProject(remote);
+        if(local) W.projects[W.projects.indexOf(local)] = remote; else W.projects.push(remote);
+      }
+      if(ix.order) W.projects.sort((a, b) => { const ia = ix.order.indexOf(a.id), ib = ix.order.indexOf(b.id); return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib); });
     }
-    if(!META.importedOld){
-      const n = await importOldFromDrive();
-      META.importedOld = true;
-      if(n) toast(plural(n, 'task') + ' from your earlier Gantt chart are now on your Timeline.', 6000);
-    }
-    driveDirty = true; await push();
-    renderAll();
-  } catch(e){ syncError(e); }
+    if(!W.projects.length) W.projects.push(prepareProject(blankProject('First project')));
+    W.projects.forEach(p => { if(!p.drive || !p.drive.fileId) p._dirty = true; });
+    W._indexDirty = true; driveOn = true;
+    if(!W.projects.some(p => p.id === ui.project)) ui.project = W.projects[0].id;
+    destroyFrames();
+    await ensureImages(proj());
+    await flush();
+    renderAll(true);
+    rescuePictures();
+    W.projects.forEach(p => { if(!p.drive || !p.drive.reportId) scheduleReport(p, 8000); });
+  } catch(e){ driveError(e); renderAll(false); }
 }
+
+/* =====================================================================
+   CORE · UI state
+   ===================================================================== */
+const ui = { project:null, tab:'moodboard', drawer:null, sideOpen:false, sideClosed:false, noteId:null, selImg:null };
+function stashUI(){ LS.set('dw-ui',JSON.stringify({ project:ui.project, tab:ui.tab, drawer:ui.drawer, noteId:ui.noteId, sideClosed:ui.sideClosed })); }
+const proj = () => W.projects.find(p => p.id === ui.project) || W.projects[0];
+
+/* =====================================================================
+   MODULE · Mood board (your moodboard.html, embedded)
+   ===================================================================== */
+const MoodboardModule = {
+  label:'Mood board', icon:'board', frame:true,
+  defaultData: () => null,
+  hydrate(p, d){ (d.cards || []).forEach(c => { if(c.type === 'image' && typeof c.src === 'string' && c.src.startsWith('img:')) c.src = imgURL(p, c.src.slice(4)); }); return d; },
+  ingest(p, raw){
+    ingestChain = ingestChain.then(async () => {
+      for(const c of (raw.cards || [])){
+        // A card whose picture is missing reports the app's own address as its picture.
+        if(c.type === 'image' && c.src === location.origin + location.pathname) c.src = '';
+        if(c.type !== 'image' || !c.src || c.src.startsWith('img:')) continue;
+        const known = srcMap(p).get(c.src);
+        if(known){ c.src = 'img:' + known; continue; }
+        if(c.src.startsWith('data:image/')) c.src = 'img:' + await addDataImage(p, c.src);
+        else if(/^https?:/i.test(c.src)) c.src = 'img:' + addUrlImage(p, c.src);
+      }
+      setModData(p.id, 'moodboard', raw);
+    }).catch(e => console.warn(e));
+  },
+  normalize: d => d ? { c: d.cards || [], w: d.worldW, h: d.worldH } : null,
+  imageRefs: d => ((d && d.cards) || []).filter(c => c.type === 'image' && typeof c.src === 'string' && c.src.startsWith('img:')).map(c => c.src.slice(4)),
+  summarize(a, b){
+    const cards = (d, t) => ((d && d.cards) || []).filter(c => c.type === t);
+    const parts = [];
+    const ia = cards(a, 'image').map(c => c.src), ib = cards(b, 'image').map(c => c.src);
+    const add = ib.filter(x => !ia.includes(x)).length, rem = ia.filter(x => !ib.includes(x)).length;
+    if(add) parts.push('Added ' + plural(add, 'picture')); if(rem) parts.push('Removed ' + plural(rem, 'picture'));
+    ['note', 'label'].forEach(t => {
+      const ta = cards(a, t).map(c => c.text || ''), tb = cards(b, t).map(c => c.text || '');
+      if(tb.length > ta.length) parts.push('Added ' + plural(tb.length - ta.length, t));
+      else if(tb.length < ta.length) parts.push('Removed ' + plural(ta.length - tb.length, t));
+      else if(ta.slice().sort().join('\u0000') !== tb.slice().sort().join('\u0000')) parts.push('Edited ' + t + 's');
+    });
+    if(!a) return parts.length ? 'Started the board · ' + parts.join(', ') : 'Started the board';
+    return parts.length ? parts.join(', ') : 'Rearranged the board';
+  }
+};
+
+/* =====================================================================
+   MODULE · Gantt (your gantt.html, embedded)
+   ===================================================================== */
+const GanttModule = {
+  label:'Gantt', icon:'gantt', frame:true,
+  defaultData: () => null,
+  ingest(p, raw){
+    const was = p.mods.gantt.data;
+    setModData(p.id, 'gantt', raw);
+    // Switching between timeline and board isn't an edit, but it's saved so the plan reopens the same way.
+    if(raw && (!was || was.view !== raw.view || was.group !== raw.group)) markChanged(p);
+  },
+  normalize: d => d ? Object.assign({}, d, { theme: undefined, view: undefined, group: undefined }) : null,
+  imageRefs: () => [],
+  fileRefs: d => ((d && d.phases) || []).flatMap(p => (p.files || []).concat(...(p.tasks || []).map(t => t.files || []))).filter(f => f.kind === 'file').map(f => f.id),
+  summarize(a, b){
+    const phases = d => (d && d.phases) || [];
+    const tasks = d => phases(d).flatMap(p => p.tasks || []);
+    const ta = tasks(a), tb = tasks(b), ids = new Set(ta.map(t => t.id)), idsB = new Set(tb.map(t => t.id));
+    const parts = [];
+    const added = tb.filter(t => !ids.has(t.id)).length, removed = ta.filter(t => !idsB.has(t.id)).length;
+    if(added) parts.push('Added ' + plural(added, 'task')); if(removed) parts.push('Removed ' + plural(removed, 'task'));
+    const done = tb.filter(t => t.done && ta.some(x => x.id === t.id && !x.done)).length;
+    const reop = tb.filter(t => !t.done && ta.some(x => x.id === t.id && x.done)).length;
+    const started = tb.filter(t => !t.done && t.status === 'doing' && ta.some(x => x.id === t.id && x.status !== 'doing')).length;
+    if(done) parts.push('Completed ' + plural(done, 'task')); if(reop) parts.push('Reopened ' + plural(reop, 'task'));
+    if(started) parts.push('Started ' + plural(started, 'task'));
+    const atts = d => phases(d).flatMap(p => (p.files || []).concat(...(p.tasks || []).map(t => t.files || []))).map(f => f.id);
+    const attA = new Set(atts(a)), attB = atts(b), attached = attB.filter(id => !attA.has(id)).length;
+    if(attached) parts.push('Attached ' + plural(attached, 'file'));
+    if(!a) return 'Started the schedule';
+    if(parts.length) return parts.join(', ');
+    const order = (d, inner) => phases(d).map(p => inner ? p.id + ':' + (p.tasks || []).map(t => t.id).join(',') : p.id).join('|');
+    if(order(a) !== order(b)) return 'Reordered phases';
+    if(order(a, true) !== order(b, true)) return 'Reordered tasks';
+    return 'Adjusted dates or details';
+  }
+};
+
+/* =====================================================================
+   PICTURE MARKUP · reposition + pen / arrow / box / text
+   ===================================================================== */
+const MARK_COLORS = ['#E5484D', '#2783DE', '#F5B800', '#2FA36B', '#111111', '#FFFFFF'];
+const WIDTHS = [{ k:'Thin', w:2.5, t:14 }, { k:'Medium', w:4, t:18 }, { k:'Thick', w:7, t:26 }];
+const cropOf = o => Object.assign({ x:0, y:0, s:1 }, o && o.crop);
+const cropTransform = c => 'translate(' + (c.x * 100) + '%,' + (c.y * 100) + '%) scale(' + c.s + ')';
+const isLight = c => /^#(fff|ffffff|f5b800)$/i.test(c);
+function drawMark(m){
+  const g = svgEl('g', {}), sw = m.w || 4;
+  if(m.t === 'pen'){
+    g.append(svgEl('path', { d: 'M' + m.pts.map(q => q[0].toFixed(1) + ' ' + q[1].toFixed(1)).join(' L'), fill:'none', stroke:m.c, 'stroke-width':sw, 'stroke-linecap':'round', 'stroke-linejoin':'round' }));
+  } else if(m.t === 'box'){
+    g.append(svgEl('rect', { x:Math.min(m.a[0], m.b[0]), y:Math.min(m.a[1], m.b[1]), width:Math.abs(m.b[0] - m.a[0]), height:Math.abs(m.b[1] - m.a[1]), rx:3, fill:'none', stroke:m.c, 'stroke-width':sw }));
+  } else if(m.t === 'arrow'){
+    const [x1, y1] = m.a, [x2, y2] = m.b, ang = Math.atan2(y2 - y1, x2 - x1), L = Math.max(10, sw * 3.2);
+    g.append(svgEl('line', { x1, y1, x2: x2 - L * 0.7 * Math.cos(ang), y2: y2 - L * 0.7 * Math.sin(ang), stroke:m.c, 'stroke-width':sw, 'stroke-linecap':'round' }));
+    const pt = a => [x2 - L * Math.cos(a), y2 - L * Math.sin(a)];
+    g.append(svgEl('polygon', { points: [[x2, y2], pt(ang - 0.45), pt(ang + 0.45)].map(q => q.join(',')).join(' '), fill:m.c, stroke:m.c, 'stroke-width':1.5, 'stroke-linejoin':'round' }));
+  } else if(m.t === 'text'){
+    const t = svgEl('text', { x:m.p[0], y:m.p[1], fill:m.c, 'font-size':m.size || 18, 'font-weight':700, 'paint-order':'stroke', stroke: isLight(m.c) ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.92)', 'stroke-width':3, 'stroke-linejoin':'round', 'dominant-baseline':'middle' });
+    t.textContent = m.s; t.style.fontFamily = 'var(--font)'; g.append(t);
+  }
+  return g;
+}
+function marksSVG(marks){ const s = svgEl('svg', { viewBox:'0 0 400 300', class:'marks', 'aria-hidden':'true' }); (marks || []).forEach(m => s.append(drawMark(m))); return s; }
+function figure(p, o){
+  const box = el('div', { class:'fig' }), c = cropOf(o), tf = cropTransform(c);
+  const img = el('img', { src: imgURL(p, o.img), alt: o.title || 'Option picture', draggable:'false' });
+  img.style.transform = tf;
+  const svg = marksSVG(o.marks); svg.style.transform = tf;
+  box.append(img, svg);
+  return box;
+}
+function openImageEditor(p, o, onDone){
+  const work = { crop: cropOf(o), marks: clone(o.marks || []) };
+  let tool = 'pen', color = MARK_COLORS[0], wi = 1, drawing = null;
+  const img = el('img', { src: imgURL(p, o.img), draggable:'false', alt:'' });
+  const marks = marksSVG([]);
+  const hit = el('div', { class:'ed-hit' });
+  const stage = el('div', { class:'fig ed-stage' }, img, marks, hit);
+  const zoom = el('input', { type:'range', min:'1', max:'5', step:'0.01', 'aria-label':'Zoom' });
+  zoom.addEventListener('input', () => { work.crop.s = Number(zoom.value); applyT(); });
+  function applyT(){ const tf = cropTransform(work.crop); img.style.transform = tf; marks.style.transform = tf; zoom.value = work.crop.s; }
+  function redraw(){ marks.textContent = ''; work.marks.forEach(m => marks.append(drawMark(m))); if(drawing && drawing.mark) marks.append(drawMark(drawing.mark)); }
+  function toPic(e){
+    const r = stage.getBoundingClientRect(), c = work.crop;
+    const fx = (e.clientX - r.left) / r.width * 400, fy = (e.clientY - r.top) / r.height * 300;
+    return [200 + (fx - 200 - c.x * 400) / c.s, 150 + (fy - 150 - c.y * 300) / c.s];
+  }
+  hit.addEventListener('pointerdown', e => {
+    if(e.button !== 0) return;
+    e.preventDefault();
+    if(tool === 'text'){ placeText(e); return; }
+    hit.setPointerCapture(e.pointerId);
+    if(tool === 'move') drawing = { move:true, sx:e.clientX, sy:e.clientY, c0: Object.assign({}, work.crop) };
+    else { const pt = toPic(e), W_ = WIDTHS[wi].w; drawing = { mark: tool === 'pen' ? { t:'pen', pts:[pt], c:color, w:W_ } : { t:tool, a:pt, b:pt, c:color, w:W_ } }; redraw(); }
+  });
+  hit.addEventListener('pointermove', e => {
+    if(!drawing) return;
+    if(drawing.move){ const r = stage.getBoundingClientRect(); work.crop.x = drawing.c0.x + (e.clientX - drawing.sx) / r.width; work.crop.y = drawing.c0.y + (e.clientY - drawing.sy) / r.height; applyT(); }
+    else { const pt = toPic(e); if(drawing.mark.t === 'pen') drawing.mark.pts.push(pt); else drawing.mark.b = pt; redraw(); }
+  });
+  const end = () => {
+    if(drawing && drawing.mark){
+      const m = drawing.mark;
+      if(m.t === 'pen'){ if(m.pts.length === 1) m.pts.push([m.pts[0][0] + 0.1, m.pts[0][1]]); work.marks.push(m); }
+      else if(Math.hypot(m.b[0] - m.a[0], m.b[1] - m.a[1]) > 4) work.marks.push(m);
+    }
+    drawing = null; redraw();
+  };
+  hit.addEventListener('pointerup', end); hit.addEventListener('pointercancel', end);
+  hit.addEventListener('wheel', e => { e.preventDefault(); work.crop.s = clamp(work.crop.s * (e.deltaY < 0 ? 1.08 : 1 / 1.08), 1, 5); applyT(); }, { passive:false });
+  function placeText(e){
+    const r = stage.getBoundingClientRect(), pt = toPic(e);
+    const inp = el('input', { class:'ed-text', placeholder:'Type, then Enter', 'aria-label':'Label text' });
+    inp.style.left = (e.clientX - r.left) + 'px'; inp.style.top = (e.clientY - r.top) + 'px'; inp.style.color = color;
+    let done = false;
+    const commit = keep => { if(done) return; done = true; const v = inp.value.trim(); if(keep && v) work.marks.push({ t:'text', p:pt, s:v, c:color, size:WIDTHS[wi].t }); inp.remove(); redraw(); };
+    inp.addEventListener('keydown', ev => { ev.stopPropagation(); if(ev.key === 'Enter') commit(true); if(ev.key === 'Escape') commit(false); });
+    inp.addEventListener('blur', () => commit(true));
+    stage.append(inp); setTimeout(() => inp.focus(), 0);
+  }
+  const toolBtns = {};
+  const tools = [['move','Move & zoom'], ['pen','Pen'], ['arrow','Arrow'], ['box','Box'], ['text','Text']];
+  const setTool = t => { tool = t; Object.keys(toolBtns).forEach(k => toolBtns[k].classList.toggle('on', k === t)); stage.dataset.tool = t; zoomWrap.hidden = t !== 'move'; };
+  const swatches = MARK_COLORS.map(c => el('button', { class:'sw', 'aria-label':'Color ' + c, style:{ background:c }, onclick(e){ color = c; swatches.forEach(s => s.classList.remove('on')); e.currentTarget.classList.add('on'); } }));
+  swatches[0].classList.add('on');
+  const widthBtns = WIDTHS.map((w, i) => el('button', { class:'wbtn' + (i === wi ? ' on' : ''), title:w.k, 'aria-label':w.k + ' line', onclick(e){ wi = i; widthBtns.forEach(b => b.classList.remove('on')); e.currentTarget.classList.add('on'); } }, el('i', { style:{ height: w.w + 'px' } })));
+  const zoomWrap = el('div', { class:'ed-zoom' }, el('span', { text:'Zoom' }), zoom, el('button', { class:'btn ghost', text:'Reset', onclick(){ work.crop = { x:0, y:0, s:1 }; applyT(); } }));
+  const bar = el('div', { class:'ed-bar' },
+    el('div', { class:'ed-group' }, tools.map(([k, l]) => (toolBtns[k] = el('button', { class:'ed-tool', title:l, 'aria-label':l, onclick(){ setTool(k); } }, icon(k), el('span', { text: k === 'move' ? 'Move' : l }))))),
+    el('div', { class:'ed-group' }, swatches), el('div', { class:'ed-group' }, widthBtns),
+    el('div', { class:'ed-group' },
+      el('button', { class:'ed-tool', title:'Undo (Ctrl/⌘ Z)', onclick(){ work.marks.pop(); redraw(); } }, icon('undo'), el('span', { text:'Undo' })),
+      el('button', { class:'ed-tool', title:'Clear drawing', onclick(){ work.marks = []; redraw(); } }, el('span', { text:'Clear' }))));
+  const foot = el('div', { class:'ed-foot' }, zoomWrap, el('div', { style:{ flex:'1' } }),
+    el('button', { class:'btn', text:'Cancel', onclick(){ m.close(); } }),
+    el('button', { class:'btn primary', text:'Done', onclick(){ o.crop = work.crop; o.marks = work.marks; m.close(); onDone(); } }));
+  const key = e => { if((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.target.matches('input')){ e.preventDefault(); work.marks.pop(); redraw(); } };
+  document.addEventListener('keydown', key);
+  const m = modal('Edit picture', el('div', { class:'ed' }, bar, stage, foot), { cls:'wide', onClose(){ document.removeEventListener('keydown', key); } });
+  setTool('pen'); applyT(); redraw();
+}
+
+/* =====================================================================
+   MODULE · Narrow scope (native)
+   ===================================================================== */
+const DEFAULT_CRITERIA = ['Ease of assembly', 'Reliability', 'Repairability', 'Cost', 'Time to make'];
+const newOption = title => ({ id:uid(), title, img:null, crop:null, marks:[], ratings:{}, notes:'', updatedAt:nowISO() });
+const ScopeModule = {
+  label:'Narrow scope', icon:'scope', frame:false,
+  defaultData: () => ({ criteria: DEFAULT_CRITERIA.map(n => ({ id:uid(), name:n })), options: [newOption('Option A'), newOption('Option B')] }),
+  normalize: d => d ? { c: d.criteria, o: (d.options || []).map(o => ({ i:o.id, t:o.title, g:o.img, cr:o.crop || null, m:o.marks || [], r:o.ratings, n:o.notes })) } : null,
+  imageRefs: d => ((d && d.options) || []).map(o => o.img).filter(Boolean),
+  summarize(a, b){
+    if(!a) return 'Started comparing options';
+    const parts = [], oa = a.options || [], ob = b.options || [];
+    const added = ob.filter(o => !oa.some(x => x.id === o.id)), removed = oa.filter(o => !ob.some(x => x.id === o.id));
+    if(added.length) parts.push('Added ' + added.map(o => '“' + (o.title || 'Untitled') + '”').join(', '));
+    if(removed.length) parts.push('Removed ' + removed.map(o => '“' + (o.title || 'Untitled') + '”').join(', '));
+    const ca = a.criteria || [], cb = b.criteria || [];
+    const cAdd = cb.filter(c => !ca.some(x => x.id === c.id)), cRem = ca.filter(c => !cb.some(x => x.id === c.id));
+    if(cAdd.length) parts.push('Added criteria: ' + cAdd.map(c => c.name || 'Untitled').join(', '));
+    if(cRem.length) parts.push('Removed criteria: ' + cRem.map(c => c.name || 'Untitled').join(', '));
+    let rated = 0, pics = 0, marked = 0;
+    ob.forEach(o => { const q = oa.find(x => x.id === o.id); if(!q) return;
+      if(JSON.stringify(q.ratings) !== JSON.stringify(o.ratings)) rated++;
+      if(q.img !== o.img) pics++;
+      else if(JSON.stringify([q.crop, q.marks]) !== JSON.stringify([o.crop, o.marks])) marked++; });
+    if(rated) parts.push('Changed ratings on ' + plural(rated, 'option'));
+    if(pics) parts.push('Changed ' + plural(pics, 'picture'));
+    if(marked) parts.push('Marked up ' + plural(marked, 'picture'));
+    return parts.length ? parts.join(' · ') : 'Edited option details';
+  },
+  mount(hostEl, ctx){
+    const ro = !ctx.editable, p = ctx.project, d = ctx.data();
+    const touch = o => { if(o) o.updatedAt = nowISO(); ctx.changed(); };
+    const scoreOf = o => { const vals = d.criteria.map(c => o.ratings[c.id]).filter(v => v > 0); return { avg: vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null, n: vals.length }; };
+    const root = el('div', { class:'scope' });
+    function pick(o){ ctx.pickImage(id => { o.img = id; o.crop = null; o.marks = []; touch(o); render(); }); }
+    function render(){
+      root.textContent = '';
+      const scores = d.options.map(scoreOf);
+      const best = Math.max(...scores.map(s => s.avg == null ? -1 : s.avg));
+      const tied = scores.filter(s => s.avg === best).length;
+      const leadId = d.options.length > 1 && best > 0 && tied === 1 ? d.options[scores.findIndex(s => s.avg === best)].id : null;
+      root.append(el('div', { class:'scope-intro' }, el('div', null,
+        el('h2', { text:'Compare design options' }),
+        el('p', { text: ro ? 'Each option is rated 1 to 5, where 5 means easiest, most reliable, cheapest, or fastest.' : 'Pick a picture for each option, mark it up, then rate it 1 to 5. Higher is better: 5 means easiest, most reliable, cheapest, or fastest.' }))));
+      const bar = el('div', { class:'crit-bar' }, el('span', { class:'lbl', text:'Rated on' }));
+      d.criteria.forEach(c => {
+        const inp = el('input', { value:c.name, 'aria-label':'Criterion name', placeholder:'Criterion', size: Math.max(6, c.name.length) });
+        inp.readOnly = ro;
+        inp.addEventListener('input', () => { c.name = inp.value; inp.size = Math.max(6, inp.value.length); ctx.changed(); root.querySelectorAll('.rn[data-crit="' + c.id + '"]').forEach(x => { x.textContent = c.name || 'Untitled'; x.title = c.name; }); });
+        bar.append(el('span', { class:'chip' }, inp, ro ? null : el('button', { title:'Remove “' + c.name + '”', 'aria-label':'Remove criterion', text:'×', onclick(){ d.criteria = d.criteria.filter(x => x !== c); d.options.forEach(o => delete o.ratings[c.id]); touch(); render(); } })));
+      });
+      if(!ro) bar.append(el('button', { class:'add-chip', text:'+ Add criterion', onclick(){ d.criteria.push({ id:uid(), name:'' }); touch(); render(); const ins = root.querySelectorAll('.chip input'); ins[ins.length - 1].focus(); } }));
+      root.append(bar);
+      const row = el('div', { class:'opts' });
+      d.options.forEach((o, idx) => {
+        const s = scores[idx];
+        const imgBox = el('div', { class:'opt-img' });
+        if(o.img && imgURL(p, o.img)){
+          const fig = figure(p, o);
+          if(!ro){ fig.classList.add('clickable'); fig.title = 'Edit picture'; fig.addEventListener('click', () => openImageEditor(p, o, () => { touch(o); render(); })); }
+          imgBox.append(fig);
+          if(!ro) imgBox.append(el('div', { class:'over' },
+            el('button', { onclick(){ openImageEditor(p, o, () => { touch(o); render(); }); } }, 'Edit'),
+            el('button', { text:'Change', onclick(){ pick(o); } }),
+            el('button', { text:'Remove', onclick(){ o.img = null; o.crop = null; o.marks = []; touch(o); render(); } })));
+        } else if(!ro) imgBox.append(el('button', { class:'pick', onclick(){ pick(o); } }, icon('image'), 'Choose a picture'));
+        else imgBox.append(el('span', { class:'faint', text:'No picture chosen' }));
+        const title = el('input', { class:'opt-title', value:o.title, placeholder:'Untitled option', 'aria-label':'Option name' });
+        title.readOnly = ro; title.addEventListener('input', () => { o.title = title.value; touch(o); });
+        const rates = el('div', { class:'rates' });
+        d.criteria.forEach(c => {
+          const v = o.ratings[c.id] || 0;
+          const dots = el('div', { class:'dots' + (ro ? ' ro' : ''), role:'group', 'aria-label': (c.name || 'Criterion') + ' rating' });
+          for(let i = 1; i <= 5; i++) dots.append(el('button', { class: i <= v ? 'f' : '', text:String(i), 'aria-label': i + ' of 5', 'aria-pressed': String(i === v), disabled: ro,
+            onclick(){ o.ratings[c.id] = (v === i ? 0 : i); if(!o.ratings[c.id]) delete o.ratings[c.id]; touch(o); render(); } }));
+          rates.append(el('div', { class:'rate' }, el('span', { class:'rn', 'data-crit':c.id, title:c.name, text: c.name || 'Untitled' }), dots));
+        });
+        const notes = el('textarea', { class:'ta', placeholder: ro ? '' : 'Why this option? Tradeoffs, open questions…', 'aria-label':'Option notes' });
+        notes.value = o.notes || ''; notes.readOnly = ro; notes.addEventListener('input', () => { o.notes = notes.value; touch(o); });
+        row.append(el('article', { class:'opt' + (o.id === leadId ? ' lead' : '') }, imgBox,
+          el('div', { class:'opt-body' }, title,
+            el('div', { class:'score' },
+              el('span', { class:'num' }, s.avg == null ? '–' : s.avg.toFixed(1), el('span', { class:'of', text:' /5' })),
+              el('span', { class:'meter2' }, el('i', { style:{ width: ((s.avg || 0) / 5 * 100) + '%' } })),
+              o.id === leadId ? el('span', { class:'lead-tag', text:'Highest score' }) : null),
+            el('div', { class:'score-sub', text: s.n + ' of ' + d.criteria.length + ' rated' }),
+            rates, (ro && !o.notes) ? null : notes,
+            el('div', { class:'opt-foot' },
+              el('span', { title: fmtDate(o.updatedAt), text: 'Edited ' + fmtAgo(o.updatedAt) }),
+              ro || d.options.length < 2 ? null : el('button', { text:'Remove option', async onclick(){
+                if(!await askConfirm('Remove “' + (o.title || 'Untitled option') + '”? You can bring it back from History.', 'Remove')) return;
+                d.options = d.options.filter(x => x !== o); touch(); render(); } })))));
+      });
+      if(!ro) row.append(el('button', { class:'add-opt', onclick(){ d.options.push(newOption('Option ' + String.fromCharCode(65 + d.options.length % 26))); touch(); render(); hostEl.scrollLeft = hostEl.scrollWidth; } }, icon('plus'), 'Add option'));
+      root.append(row);
+    }
+    render(); hostEl.append(root);
+    return { destroy(){ root.remove(); } };
+  }
+};
+
+/* =====================================================================
+   MODULE · Notes (native)
+   ===================================================================== */
+const ALLOWED = new Set(['B','STRONG','I','EM','U','S','STRIKE','UL','OL','LI','P','DIV','BR','H1','H2','H3','BLOCKQUOTE','CODE','PRE','SPAN']);
+function sanitize(html){
+  const doc = new DOMParser().parseFromString('<div>' + (html || '') + '</div>', 'text/html');
+  const root = doc.body.firstChild;
+  (function walk(n){
+    Array.from(n.childNodes).forEach(c => {
+      if(c.nodeType === 1){
+        if(!ALLOWED.has(c.tagName)){
+          if(['SCRIPT','STYLE','IFRAME','OBJECT','EMBED','LINK','META','IMG','SVG'].includes(c.tagName)){ c.remove(); return; }
+          walk(c); c.replaceWith(...Array.from(c.childNodes)); return;
+        }
+        Array.from(c.attributes).forEach(a => c.removeAttribute(a.name));
+        walk(c);
+      } else if(c.nodeType !== 3) c.remove();
+    });
+  })(root);
+  return root.innerHTML;
+}
+const plainText = html => { const d = document.createElement('div'); d.innerHTML = sanitize(html); return (d.textContent || '').replace(/\s+/g, ' ').trim(); };
+const NotesModule = {
+  label:'Notes', icon:'notes', frame:false,
+  defaultData: () => ({ notes: [] }),
+  normalize: d => d ? (d.notes || []).map(n => [n.id, n.title, n.html]) : null,
+  imageRefs: () => [],
+  summarize(a, b){
+    const na = (a && a.notes) || [], nb = (b && b.notes) || [], parts = [];
+    const add = nb.filter(n => !na.some(x => x.id === n.id)), rem = na.filter(n => !nb.some(x => x.id === n.id));
+    const ed = nb.filter(n => { const q = na.find(x => x.id === n.id); return q && (q.title !== n.title || q.html !== n.html); });
+    const nm = n => '“' + (n.title || 'Untitled') + '”';
+    if(add.length) parts.push('Added ' + add.slice(0, 2).map(nm).join(', ') + (add.length > 2 ? ' +' + (add.length - 2) : ''));
+    if(ed.length) parts.push('Edited ' + ed.slice(0, 2).map(nm).join(', ') + (ed.length > 2 ? ' +' + (ed.length - 2) : ''));
+    if(rem.length) parts.push('Deleted ' + rem.map(nm).join(', '));
+    return parts.join(' · ') || 'Edited notes';
+  },
+  mount(hostEl, ctx){
+    const ro = !ctx.editable, d = ctx.data();
+    const root = el('div', { class:'notes' }), list = el('div', { class:'n-items' }), edit = el('div', { class:'n-edit' });
+    const sorted = () => d.notes.slice().sort((x, y) => (y.updatedAt || '').localeCompare(x.updatedAt || ''));
+    let open = ui.noteId && d.notes.find(n => n.id === ui.noteId) ? ui.noteId : (window.innerWidth > 820 && d.notes.length ? sorted()[0].id : null);
+    function renderList(){
+      list.textContent = '';
+      sorted().forEach(n => {
+        const snip = plainText(n.html).slice(0, 80);
+        list.append(el('div', { class:'n-item' + (n.id === open ? ' on' : ''), tabindex:'0', role:'button', onclick(){ select(n.id); }, onkeydown(e){ if(e.key === 'Enter') select(n.id); } },
+          el('span', { class:'t' + (n.title ? '' : ' untitled'), text: n.title || 'Untitled' }), snip ? el('span', { class:'s', text:snip }) : null, el('span', { class:'d', text: fmtAgo(n.updatedAt) })));
+      });
+      if(!d.notes.length) list.append(el('div', { class:'drawer-note', text: ro ? 'No notes yet.' : 'No notes yet. Start one with + New.' }));
+    }
+    function select(id){ open = id; ui.noteId = id; root.classList.toggle('has-open', !!id); renderList(); renderEditor(); }
+    function renderEditor(){
+      edit.textContent = '';
+      const n = d.notes.find(x => x.id === open);
+      if(!n){ edit.append(el('div', { class:'empty' }, el('strong', { text:'Nothing open' }), el('span', { text: ro ? 'Pick a note from the list.' : 'Pick a note from the list, or start a new one.' }), ro ? null : el('button', { class:'btn', onclick: newNote }, icon('plus'), 'New note'))); return; }
+      const meta = el('div', { class:'n-meta' },
+        el('button', { class:'linkbtn show-sm', text:'← All notes', onclick(){ select(null); } }),
+        el('span', { text:'Created ' + fmtDate(n.createdAt) }), el('span', { class:'n-upd', text:'Edited ' + fmtAgo(n.updatedAt) }),
+        ro ? null : el('button', { class:'n-delete', text:'Delete note', async onclick(){ if(!await askConfirm('Delete “' + (n.title || 'Untitled') + '”? You can bring it back from History.', 'Delete')) return; d.notes = d.notes.filter(x => x !== n); ctx.changed(); select(null); } }));
+      const title = el('input', { class:'n-title', value:n.title, placeholder:'Untitled', 'aria-label':'Note title' }); title.readOnly = ro;
+      const body = el('div', { class:'n-body', 'data-ph': ro ? '' : 'Write something…', html: sanitize(n.html) });
+      if(!ro) body.setAttribute('contenteditable', 'true');
+      const bump = () => { n.updatedAt = nowISO(); ctx.changed(); const u = meta.querySelector('.n-upd'); if(u) u.textContent = 'Edited just now'; renderList(); };
+      title.addEventListener('input', () => { n.title = title.value; bump(); });
+      title.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); body.focus(); } });
+      body.addEventListener('input', () => { n.html = body.innerHTML; bump(); });
+      body.addEventListener('paste', e => { e.preventDefault(); document.execCommand('insertText', false, (e.clipboardData || window.clipboardData).getData('text/plain')); });
+      const cmd = (c, v) => () => { body.focus(); document.execCommand(c, false, v); n.html = body.innerHTML; bump(); };
+      const tb = (props, f) => el('button', Object.assign({ onmousedown: e => e.preventDefault(), onclick: f }, props));
+      const tools = ro ? null : el('div', { class:'n-tools', role:'toolbar', 'aria-label':'Formatting' },
+        tb({ title:'Heading', text:'H', style:{ fontWeight:'700' } }, cmd('formatBlock', 'H2')), tb({ title:'Body text', text:'¶' }, cmd('formatBlock', 'DIV')), el('span', { class:'sep' }),
+        tb({ title:'Bold (Ctrl/⌘ B)', html:'<b>B</b>' }, cmd('bold')), tb({ title:'Italic (Ctrl/⌘ I)', html:'<i>I</i>' }, cmd('italic')), tb({ title:'Strikethrough', html:'<s>S</s>' }, cmd('strikeThrough')), el('span', { class:'sep' }),
+        tb({ title:'Bulleted list', text:'• List' }, cmd('insertUnorderedList')), tb({ title:'Numbered list', text:'1. List' }, cmd('insertOrderedList')), tb({ title:'Quote', text:'❝' }, cmd('formatBlock', 'BLOCKQUOTE')));
+      edit.append(el('div', { class:'n-doc' }, meta, title, tools, body));
+      if(!ro && !n.title && !plainText(n.html)) setTimeout(() => title.focus(), 0);
+    }
+    function newNote(){ const n = { id:uid(), title:'', html:'', createdAt:nowISO(), updatedAt:nowISO() }; d.notes.push(n); ctx.changed(); select(n.id); }
+    root.append(el('div', { class:'n-list' }, el('div', { class:'n-list-h' }, el('span', { text: plural(d.notes.length, 'note') }), ro ? null : el('button', { class:'btn ghost', onclick: newNote }, icon('plus'), 'New')), list), edit);
+    root.classList.toggle('has-open', !!open);
+    renderList(); renderEditor(); hostEl.append(root);
+    return { destroy(){ root.remove(); } };
+  }
+};
+
+const MODULES = { moodboard: MoodboardModule, scope: ScopeModule, gantt: GanttModule, notes: NotesModule };
+
+/* =====================================================================
+   SHELL · embedded frames
+   ===================================================================== */
+const frames = new Map();
+function postFrame(f, msg){ msg.__wsParent = 1; try { f.iframe.contentWindow.postMessage(msg, '*'); } catch(e){} }
+function frameDoc(mod, p){
+  const M = MODULES[mod];
+  let data = clone(p.mods[mod].data);
+  if(data){ data.theme = isDark() ? 'dark' : 'light'; if(M.hydrate) data = M.hydrate(p, data); }
+  return SRC.tpl[mod].split('/*__WS_INIT__*/null').join(safeJSON({ mod, data, dark: isDark(), font: fontStack(), readOnly: !canEdit() }));
+}
+function destroyFrames(filter){ frames.forEach((f, k) => { if(!filter || filter(f)){ f.iframe.remove(); frames.delete(k); } }); }
+window.addEventListener('message', e => {
+  const m = e.data; if(!m || m.__ws !== 1) return;
+  let f = null; frames.forEach(x => { if(x.iframe.contentWindow === e.source) f = x; });
+  if(!f) return;
+  const p = W.projects.find(x => x.id === f.pid); if(!p) return;
+  if(m.type === 'save'){ if(canEdit()) MODULES[f.mod].ingest(p, m.data); }
+  else if(m.type === 'save-shortcut'){ if(canEdit()) flush(); }
+  else if(m.type === 'notice') toast(String(m.text || ''), 7000);
+  else if(m.type === 'file-add'){ if(canEdit()) addFiles(p, m.files || []).then(items => postFrame(f, { type:'file-added', reqId: m.reqId, items })); }
+  else if(m.type === 'file-open') openFile(p, m.id);
+  else if(m.type === 'img-select'){
+    ui.selImg = m.src ? (srcMap(p).get(m.src) || null) : null;
+    if(m.src && !ui.selImg) ingestChain.then(() => { ui.selImg = srcMap(p).get(m.src) || null; if(ui.drawer === 'info') renderDrawer(); });
+    if(ui.drawer === 'info') renderDrawer();
+  }
+});
 
 /* =====================================================================
    SHELL · layout
    ===================================================================== */
-const ui = { tab:'day', date: today(), drawer:null, block:null, task:null, phase:null };
-const collapsed = new Set((() => { try { return JSON.parse(LS.get('anium-planner:collapsed') || '[]'); } catch(e){ return []; } })());
-const saveCollapsed = () => LS.set('anium-planner:collapsed', JSON.stringify([...collapsed].slice(-300)));
-function stashUI(){ SS.set('anium-planner:ui', JSON.stringify({ tab: ui.tab, date: ui.date, on: today() })); LS.set('anium-planner:tab', ui.tab); }
+const app = $('#app');
+let native = null, popEl = null, mountSeq = 0;
+function closePop(){ if(popEl){ popEl.remove(); popEl = null; } }
+document.addEventListener('mousedown', e => { if(popEl && !popEl.contains(e.target)) closePop(); });
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape') closePop();
+  if((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')){ e.preventDefault(); if(canEdit()) flush(); }
+});
+window.addEventListener('beforeunload', e => { if(canEdit() && (flushTimer || flushing || (driveOn && W.projects.some(p => p._dirty)))){ e.preventDefault(); e.returnValue = ''; } });
+function popover(anchor, content){
+  closePop();
+  const r = anchor.getBoundingClientRect();
+  popEl = el('div', { class:'pop' }, content); document.body.append(popEl);
+  const pw = popEl.offsetWidth, ph = popEl.offsetHeight;
+  popEl.style.left = Math.max(8, Math.min(window.innerWidth - pw - 8, r.left)) + 'px';
+  popEl.style.top = (r.bottom + ph + 8 > window.innerHeight ? Math.max(8, r.top - ph - 4) : r.bottom + 4) + 'px';
+}
+const EMOJI = ['📐','🤖','⚙️','🔧','🛠️','🔩','🧪','📦','🏥','🚚','💡','🎯','🧭','📋','🗂️','🧱','🪛','🔋','🛞','🧲','✏️','📎','🗺️','⭐'];
+function emojiPicker(anchor, p){ popover(anchor, el('div', { class:'emoji-grid' }, EMOJI.map(em => el('button', { text:em, 'aria-label':em, onclick(){ p.icon = em; markChanged(p); W._indexDirty = true; closePop(); renderSidebar(); renderHeader(); } })))); }
+
 const shell = {};
 function buildShell(){
-  const app = $('#app'); app.textContent = '';
-  shell.top = el('header', { class:'top' });
+  app.textContent = '';
+  shell.side = el('aside', { class:'side', 'aria-label':'Projects' });
+  shell.top = el('div', { class:'topbar' });
+  shell.banner = el('div');
+  shell.tabs = el('nav', { class:'tabs', 'aria-label':'Sections' });
   shell.view = el('div', { class:'view' });
   shell.native = el('div', { class:'native' });
+  shell.loading = el('div', { class:'empty loading', hidden:true }, el('span', { text:'Loading pictures…' }));
   shell.drawer = el('aside', { class:'drawer', hidden:true });
-  shell.view.append(shell.native);
-  app.append(shell.top, el('div', { class:'stage' }, shell.view, shell.drawer));
-  // Drop files onto an open task to attach them
-  const hasFiles = e => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
-  shell.drawer.addEventListener('dragover', e => { if(ui.drawer === 'task' && canWrite && hasFiles(e)){ e.preventDefault(); shell.drawer.classList.add('dragover'); } });
-  shell.drawer.addEventListener('dragleave', e => { if(!shell.drawer.contains(e.relatedTarget)) shell.drawer.classList.remove('dragover'); });
-  shell.drawer.addEventListener('drop', e => {
-    shell.drawer.classList.remove('dragover');
-    if(ui.drawer !== 'task' || !canWrite || !hasFiles(e)) return;
-    e.preventDefault(); const t = taskById(ui.task); if(t) attachTo(t, [...e.dataTransfer.files]);
+  shell.view.append(shell.native, shell.loading);
+  shell.root = el('div', { class:'app' + (canEdit() ? '' : ' solo') }, canEdit() ? shell.side : null,
+    el('main', { class:'main' }, shell.top, shell.banner, shell.tabs, el('div', { class:'stage' }, shell.view, shell.drawer)));
+  app.append(shell.root);
+  shell.view.addEventListener('mousedown', () => { if(ui.sideOpen){ ui.sideOpen = false; shell.root.classList.remove('side-open'); } });
+}
+function fullMessage(title, text){
+  app.textContent = '';
+  app.append(el('div', { class:'empty full' }, el('strong', { text:title }), el('span', { text }) ));
+}
+
+function renderSidebar(){
+  if(!canEdit()) return;
+  const s = shell.side; s.textContent = '';
+  shell.root.classList.toggle('side-closed', ui.sideClosed);
+  shell.root.classList.toggle('side-open', ui.sideOpen);
+  const title = el('input', { class:'ws-title', value: W.title || '', placeholder:'Workspace name', 'aria-label':'Workspace name' });
+  title.addEventListener('input', () => { W.title = title.value; document.title = title.value || 'Anium.planning'; markChanged(null); });
+  s.append(el('div', { class:'ws-head' }, title,
+    el('button', { class:'icon-btn', title:'Hide sidebar', 'aria-label':'Hide sidebar', onclick(){ if(window.innerWidth <= 820) ui.sideOpen = false; else ui.sideClosed = true; renderSidebar(); renderHeader(); } }, icon('menu'))));
+  const list = el('div', { class:'side-sec' }, el('div', { class:'side-label', text:'Projects' }));
+  W.projects.forEach(p => {
+    list.append(el('div', { class:'proj' + (p.id === ui.project ? ' on' : ''), tabindex:'0', role:'button', 'aria-current': p.id === ui.project ? 'page' : null,
+      onclick(e){ if(e.target.closest('.more')) return; openProject(p.id); }, onkeydown(e){ if(e.key === 'Enter') openProject(p.id); } },
+      el('span', { class:'ico', text:p.icon || '📐' }), el('span', { class:'nm', text:p.name || 'Untitled project' }),
+      p.drive && p.drive.shared ? el('span', { class:'shared-dot', title:'Shared with a link' }) : null,
+      el('button', { class:'more', title:'Project options', 'aria-label':'Project options', html:ICON.more, onclick(e){
+        e.stopPropagation();
+        popover(e.currentTarget, el('div', null,
+          el('button', { class:'mi', text:'Rename', onclick(){ closePop(); openProject(p.id); setTimeout(() => { const n = $('.p-name'); if(n){ n.focus(); n.select(); } }, 30); } }),
+          el('button', { class:'mi', text:'Share…', onclick(){ closePop(); openProject(p.id); openShare(p); } }),
+          el('button', { class:'mi', text:'Download a copy', onclick(){ closePop(); downloadProject(p); } }),
+          el('button', { class:'mi', text:'Duplicate', onclick(){ closePop(); duplicateProject(p); } }),
+          W.projects.length > 1 ? el('button', { class:'mi danger', text:'Delete', onclick(){ closePop(); deleteProject(p); } }) : null));
+      } })));
   });
+  list.append(el('button', { class:'add-proj', onclick: newProject }, el('span', { class:'ico', html:ICON.plus, style:{ width:'20px', display:'grid', placeItems:'center' } }), 'New project'));
+  s.append(el('div', { class:'side-scroll' }, list));
+  const foot = el('div', { class:'side-foot' });
+  foot.append(appearanceControls());
+  const storage = el('div', { class:'storage' });
+  if(!HAS_GOOGLE) storage.append(el('div', { class:'mode-note', text:'Saved in this browser. To sync with Google Drive and share links, finish SETUP.md in the repo.' }));
+  else if(driveOn) storage.append(el('div', { class:'drive-on' }, icon('drive'), el('span', { text:'Google Drive' }), el('a', { href:'https://drive.google.com/drive/folders/' + Drive.rootId, target:'_blank', rel:'noopener', text:'Open folder' }),
+    el('a', { href:'#', text:'Sign out', onclick(e){ e.preventDefault(); signOutDrive(); } })));
+  else storage.append(el('button', { class:'btn drive-btn', onclick: connectDrive }, icon('drive'), syncState === 'reconnect' ? 'Reconnect Google Drive' : 'Connect Google Drive'),
+    el('div', { class:'mode-note', text: syncState === 'reconnect' ? 'Your sign-in expired. Changes are kept on this computer until you reconnect.' : 'Until you connect, everything is saved in this browser only.' }));
+  foot.append(storage);
+  const fileIn = el('input', { type:'file', accept:'.html,text/html', style:{ display:'none' } });
+  fileIn.addEventListener('change', () => { const f = fileIn.files && fileIn.files[0]; fileIn.value = ''; if(f) importFile(f); });
+  foot.append(fileIn, el('button', { class:'linkbtn', onclick(){ fileIn.click(); } }, icon('up'), 'Import from a file…'));
+  s.append(foot);
 }
-function renderAll(fromRemote){
-  renderHeader();
-  const ae = document.activeElement;
-  if(!(fromRemote && ae && shell.drawer.contains(ae))) renderDrawer();
-  renderView();   // after the drawer, so the chart is sized to the space that's left
+function statusChip(){
+  const txt = { local: cacheOK ? 'Saved on this computer' : 'Not saved: browser storage is off', saving:'Saving…', saved:'Saved to Drive', offline:'Offline: will retry', error:'Couldn’t save to Drive', reconnect:'Drive disconnected' }[syncState] || '';
+  const pending = flushTimer || flushing;
+  const chip = el('span', { class:'status ' + syncState, title: lastSync ? 'Last saved to Drive ' + fmtAgo(lastSync) : '' }, pending && syncState !== 'reconnect' ? 'Saving…' : txt);
+  if(syncState === 'reconnect') return el('button', { class:'btn warn-btn', onclick: connectDrive }, icon('drive'), 'Reconnect Drive');
+  if(syncState === 'error') return el('button', { class:'btn warn-btn', onclick(){ W.projects.forEach(p => p._dirty = true); flush(); } }, 'Retry save');
+  return chip;
 }
+function renderStatus(){ const slot = $('.status-slot'); if(slot){ slot.textContent = ''; slot.append(statusChip()); } }
 function renderHeader(){
   const t = shell.top; t.textContent = '';
-  t.append(el('div', { class:'brand' }, 'Anium', el('span', { text:'.planning' })));
-  t.append(el('nav', { class:'tabs', 'aria-label':'Views' },
-    [['day', 'Day', 'day'], ['log', 'Past days', 'log'], ['timeline', 'Timeline', 'gantt']].map(([k, l, ic]) =>
-      el('button', { class:'tab' + (ui.tab === k ? ' on' : ''), 'aria-current': ui.tab === k ? 'page' : null, onclick(){ openTab(k); } }, icon(ic), l))));
-  shell.save = el('span', { class:'save-state hide-sm' });
-  const right = el('div', { class:'top-right' }, shell.save,
-    el('button', { class:'btn ghost' + (ui.drawer === 'search' ? ' on' : ''), title:'Search everything (/ or ⌘K)', onclick(){ ui.drawer === 'search' ? closeDrawer() : openSearch(); } }, icon('search'), el('span', { class:'hide-md', text:'Search' })));
-  if(canWrite && mode !== 'connecting') right.append(el('button', { class:'btn ghost plan-btn' + (ui.drawer === 'plan' ? ' on' : ''), title:'Tell Claude what you need to do and it lays out your day', onclick(){ ui.drawer === 'plan' ? closeDrawer() : openPlan(); } }, icon('spark'), el('span', { class:'hide-sm', text:'Plan my day' })));
-  right.append(el('button', { class:'btn ghost', title:'Status report and slides in Google Docs and Slides', onclick(e){ openProgress(e.currentTarget); } }, icon('report'), el('span', { class:'hide-md', text:'Progress' })));
-  right.append(driveOn
-    ? el('button', { class:'icon-btn acct', title:'Google Drive and appearance', 'aria-label':'Google Drive and appearance', onclick(e){ openAccount(e.currentTarget); } }, icon('drive'))
-    : el('button', { class:'btn' + (syncState === 'reconnect' ? ' primary' : ''), title:'Save your planner to Google Drive', onclick(e){ openAccount(e.currentTarget); } }, icon('drive'), el('span', { class:'hide-sm', text: syncState === 'reconnect' ? 'Reconnect' : 'Connect Drive' })));
+  const p = proj(), ed = canEdit();
+  if(ed && (ui.sideClosed || window.innerWidth <= 820)) t.append(el('button', { class:'icon-btn', title:'Show sidebar', 'aria-label':'Show sidebar', onclick(){ if(window.innerWidth <= 820) ui.sideOpen = true; else ui.sideClosed = false; renderSidebar(); renderHeader(); } }, icon('menu')));
+  t.append(el('button', { class:'p-ico', text: p.icon || '📐', title: ed ? 'Change icon' : null, 'aria-label':'Project icon', disabled: !ed, onclick(e){ emojiPicker(e.currentTarget, p); } }));
+  const name = el('input', { class:'p-name', value: p.name || '', placeholder:'Untitled project', 'aria-label':'Project name' });
+  name.readOnly = !ed;
+  name.addEventListener('input', () => { p.name = name.value; markChanged(p); W._indexDirty = true; const n = shell.side.querySelector('.proj.on .nm'); if(n) n.textContent = name.value || 'Untitled project'; });
+  t.append(name);
+  const right = el('div', { class:'top-right' });
+  const ea = p.mods[ui.tab].editedAt;
+  if(ea) right.append(el('span', { class:'edited', title: fmtDate(ea), text:'Edited ' + fmtAgo(ea) }));
+  if(ui.tab === 'moodboard') right.append(el('button', { class:'btn ghost' + (ui.drawer === 'info' ? ' on' : ''), title:'Picture details', onclick(){ toggleDrawer('info'); } }, icon('info'), el('span', { class:'hide-sm', text:'Picture info' })));
+  right.append(el('button', { class:'btn ghost' + (ui.drawer === 'history' ? ' on' : ''), title:'Version history', onclick(){ toggleDrawer('history'); } }, icon('clock'), el('span', { class:'hide-sm', text:'History' })));
+  if(ed){
+    right.append(el('button', { class:'btn ghost', title:'Status report and slides for Google', onclick(e){ openReports(e.currentTarget, p); } }, icon('report'), el('span', { class:'hide-sm', text:'Progress' })));
+    right.append(el('span', { class:'status-slot hide-sm' }, statusChip()));
+    right.append(el('button', { class:'btn primary', onclick(){ openShare(p); } }, icon('share'), 'Share'));
+  } else {
+    right.append(el('button', { class:'btn ghost', title:'Theme and font', 'aria-label':'Theme and font', onclick(e){ popover(e.currentTarget, el('div', { style:{ padding:'6px', width:'240px' } }, appearanceControls())); } }, el('span', { text:'Aa', style:{ fontWeight:'600' } })));
+    right.append(el('span', { class:'pill', text:'View only' }));
+    right.append(el('button', { class:'btn primary', onclick(){ downloadProject(p); } }, icon('down'), el('span', { class:'hide-sm', text:'Download' })));
+  }
   t.append(right);
-  renderSaveState();
 }
-const fmtISOClock = iso => { const d = new Date(iso); return fmtT(d.getHours() * 60 + d.getMinutes()); };
-function openAccount(anchor){
-  const theme = LS.get('anium-theme') || 'system';
-  const body = el('div', { class:'rep-pop' },
-    el('div', { class:'rep-h', text: driveOn ? 'Google Drive' : 'Save to Google Drive' }),
-    el('div', { class:'acct-tx', text: driveOn
-      ? 'Your planner is saved in the “Anium.planning” folder of your Google Drive and syncs to every device you sign in on.' + (lastSync ? ' Last synced at ' + fmtISOClock(lastSync) + '.' : '')
-      : syncState === 'reconnect' ? 'Your Google sign-in expired. Reconnect to keep syncing; nothing you did here is lost.'
-      : 'Right now your planner is saved only in this browser. Connect Google Drive to keep it safe, use it on your other devices, plan your day with Claude, attach files and make status reports.' }),
-    el('div', { class:'acct-row' }, driveOn
-      ? [folderURL() ? el('a', { class:'btn', href: folderURL(), target:'_blank', rel:'noopener', text:'Open the Drive folder' }) : null, el('button', { class:'btn ghost', text:'Sign out', onclick(){ closePop(); signOutDrive(); } })]
-      : el('button', { class:'btn primary', onclick(){ closePop(); connectDrive(); } }, icon('drive'), syncState === 'reconnect' ? 'Reconnect Google Drive' : 'Connect Google Drive')),
-    el('div', { class:'rep-h', text:'Appearance' }),
-    el('div', { class:'acct-row' }, el('div', { class:'seg', role:'group', 'aria-label':'Theme' },
-      [['light', 'Light'], ['dark', 'Dark'], ['system', 'System']].map(([k, l]) => el('button', { class: theme === k ? 'on' : '', text: l, 'aria-pressed': String(theme === k), onclick(){ LS.set('anium-theme', k); applyTheme(); openAccount(anchor); } })))),
-    el('div', { class:'acct-tx' }, el('a', { href:'/privacy.html', target:'_blank', rel:'noopener', text:'Privacy' })));
-  popover(anchor, body);
-}
-function applyTheme(){ const k = LS.get('anium-theme') || 'system', r = document.documentElement; if(k === 'system') r.removeAttribute('data-theme'); else r.setAttribute('data-theme', k); }
-function openTab(k){ tidyBlock(); ui.tab = k; if(ui.drawer === 'block' && k !== 'day' || ['task', 'phase'].includes(ui.drawer) && k !== 'timeline') ui.drawer = null; stashUI(); renderAll(); }
-function goDay(date){ tidyBlock(); ui.date = date; ui.tab = 'day'; if(['block', 'task', 'phase'].includes(ui.drawer)) ui.drawer = null; if(ui.drawer === 'plan' && !plan.busy) plan.result = null; stashUI(); scrolledFor = null; renderAll(); shell.native.scrollTop = 0; }
-function closeDrawer(){ tidyBlock(); ui.drawer = null; ui.block = null; ui.task = null; ui.phase = null; renderAll(); }
-// Leaving a block: drop steps that were added but never named.
-function tidyBlock(){
-  if(ui.drawer !== 'block') return;
-  const d = getDay(ui.date), b = d && d.blocks.find(x => x.id === ui.block);
-  if(!b || !canWrite) return;
-  const n = b.steps.length; b.steps = b.steps.filter(st => st.text.trim());
-  if(b.steps.length !== n) saveDay(d, 0);
-}
-
-function renderView(){
-  const host = shell.native;
-  const keepTop = host.scrollTop, wrap = $('.chart-wrap', host), keepLeft = wrap ? wrap.scrollLeft : null, keepFor = host.dataset.for;
-  host.textContent = '';
-  if(mode === 'connecting' || !loaded.days || !loaded.tasks || !loaded.project){ host.append(el('div', { class:'loading', text:'Loading your planner…' })); return; }
-  host.dataset.for = ui.tab === 'timeline' ? 'timeline' : ui.tab + ':' + ui.date;
-  if(ui.tab === 'log') renderLog(host); else if(ui.tab === 'timeline') renderTimeline(host); else renderDay(host);
-  if(keepFor === host.dataset.for){
-    host.scrollTop = keepTop;
-    const w2 = $('.chart-wrap', host); if(w2 && keepLeft != null) w2.scrollLeft = keepLeft;
+function renderTabs(){
+  if(!shell.tabs) return;
+  const t = shell.tabs; t.textContent = '';
+  // The planner's views live on the main page
+  if(ROLE === 'owner'){
+    [['day', 'Day', 'day'], ['log', 'Past days', 'log'], ['timeline', 'Timeline', 'gantt']].forEach(([k, l, ic]) => t.append(el('a', { class:'tab', href:'/#' + k }, icon(ic), l)));
+    t.append(el('span', { class:'tab-sep', 'aria-hidden':'true' }));
   }
-}
-
-/* =====================================================================
-   VIEW · Day (hour-by-hour Gantt)
-   ===================================================================== */
-let scrolledFor = null, drag = null;
-function renderDay(host){
-  const date = ui.date, d = getDay(date) || blank(date), isToday = date === today(), isPast = date < today();
-  const blocks = d.blocks.slice().sort((a, b) => a.start - b.start || a.end - b.end);
-  const done = blocks.filter(b => b.status === 'done');
-  const page = el('div', { class:'page' });
-  const dateIn = el('input', { type:'date', class:'date-in', value: date, 'aria-label':'Pick a day' });
-  dateIn.addEventListener('change', () => { if(/^\d{4}-\d{2}-\d{2}$/.test(dateIn.value)) goDay(dateIn.value); });
-  const rel = relDay(date);
-  page.append(el('div', { class:'day-head' },
-    el('div', { class:'day-nav' },
-      el('button', { class:'icon-btn', title:'Previous day', 'aria-label':'Previous day', onclick(){ goDay(addDays(date, -1)); } }, icon('left')),
-      el('button', { class:'icon-btn', title:'Next day', 'aria-label':'Next day', onclick(){ goDay(addDays(date, 1)); } }, icon('right')),
-      el('h1', { class:'day-title', text: dayTitle(date) }),
-      rel ? el('span', { class:'rel' + (isToday ? ' today' : ''), text: rel }) : null),
-    isToday ? null : el('button', { class:'btn', text:'Go to today', onclick(){ goDay(today()); } }),
-    dateIn,
-    blocks.length ? el('div', { class:'stats' },
-      el('span', null, el('b', { text: done.length + ' of ' + blocks.length }), ' done'),
-      el('span', null, el('b', { text: fmtHours(minsOf(done)) }), ' of ' + fmtHours(minsOf(blocks)) + ' planned')) : null));
-  if(canWrite || d.focus){
-    const fi = el('input', { class:'focus-in', id:'focus-in', value: d.focus || '', placeholder: isPast ? 'What mattered most that day?' : 'The one thing that matters most today', 'aria-label':'Focus for the day' });
-    fi.readOnly = !canWrite;
-    fi.addEventListener('input', () => { const dd = ensureDay(date); dd.focus = fi.value; saveDay(dd, 800); });
-    page.append(el('div', { class:'focus-row' }, el('label', { for:'focus-in', text:'Focus' }), fi));
-  }
-  const body = el('div', { class:'day-body' });
-  if(syncState === 'reconnect') body.append(el('div', { class:'banner warn' },
-    el('span', { class:'grow', text:'Your Google sign-in expired, so changes are only being saved in this browser. Reconnect to sync them to Drive.' }),
-    el('button', { class:'btn primary', onclick: connectDrive }, 'Reconnect Google Drive')));
-  else if(!driveOn && mode !== 'connecting' && LS.get('anium-planner:nodrive') !== today() && (DAYS.size || TASKS.size)) body.append(el('div', { class:'banner warn' },
-    el('span', { class:'grow', text:'Your planner is only saved in this browser. Connect Google Drive to keep it safe and use it on your other devices.' }),
-    el('button', { class:'btn primary', onclick: connectDrive }, icon('drive'), 'Connect Google Drive'),
-    el('button', { class:'btn ghost', text:'Not now', onclick(){ LS.set('anium-planner:nodrive', today()); renderView(); } })));
-  if(canWrite && !blocks.length && !isPast && ui.drawer !== 'plan' && LS.get('anium-planner:skip') !== date){
-    const hr = new Date().getHours();
-    body.append(el('div', { class:'banner' },
-      el('span', { class:'grow', text: isToday ? (hr < 12 ? 'Good morning. ' : hr < 18 ? 'Good afternoon. ' : 'Good evening. ') + 'Tell Claude what you need to get done and it’ll lay out your hours.' : 'Plan ' + dayShort(date) + ' ahead: tell Claude what’s coming up.' }),
-      el('button', { class:'btn primary', onclick: openPlan }, icon('spark'), 'Plan my day'),
-      el('button', { class:'btn ghost', text:'Not now', onclick(){ LS.set('anium-planner:skip', date); renderView(); } })));
-  }
-  if(!blocks.length && !canWrite) body.append(el('div', { class:'empty-day', text:'Nothing was planned for this day.' }));
-  else body.append(buildChart(d, blocks, isToday));
-  if(blocks.length && canWrite) body.append(el('p', { class:'chart-tip', text:'Drag a bar to move it, drag its ends to change the time, or click it for details and steps. Click the empty row to add a block at that time.' }));
-  page.append(body);
-  host.append(page);
-  if(isToday && scrolledFor !== date){
-    scrolledFor = date;
-    const w = $('.chart-wrap', host), n = $('.now', host);
-    if(w && n && w.scrollWidth > w.clientWidth){ const lw = parseInt(w.style.getPropertyValue('--labw')) || 250; w.scrollLeft = Math.max(0, n.offsetLeft - lw - (w.clientWidth - lw) / 3); }
-  }
-}
-function buildChart(d, blocks, isToday){
-  const narrow = window.innerWidth <= 600;
-  const labW = narrow ? 138 : 250;
-  let r0 = 8 * 60, r1 = 18 * 60;
-  blocks.forEach(b => { r0 = Math.min(r0, Math.floor(b.start / 60) * 60); r1 = Math.max(r1, Math.ceil(b.end / 60) * 60); });
-  const nm = nowMin();
-  if(isToday){ r0 = Math.min(r0, Math.floor(nm / 60) * 60); r1 = Math.max(r1, Math.min(1440, Math.ceil((nm + 30) / 60) * 60)); }
-  const hours = (r1 - r0) / 60;
-  const avail = Math.max(300, shell.native.clientWidth - (window.innerWidth <= 820 ? 32 : 48) - 2);
-  const hw = Math.max(narrow ? 52 : 60, Math.floor((avail - labW) / hours));
-  const X = m => (m - r0) / 60 * hw, trackW = hours * hw;
-  const wrap = el('div', { class:'chart-wrap', style:{ '--labw': labW + 'px', '--hw': hw + 'px' } });
-  const chart = el('div', { class:'chart', style:{ width: (labW + trackW) + 'px' } });
-  const hrs = el('div', { class:'hours', style:{ width: trackW + 'px' } });
-  for(let i = 0; i < hours; i++) hrs.append(el('span', { style:{ left: i * hw + 'px' }, text: fmtT(r0 + i * 60) }));
-  chart.append(el('div', { class:'axis' }, el('div', { class:'lab', text: blocks.length ? plural(blocks.length, 'block') : 'Blocks' }), hrs));
-  blocks.forEach(b => {
-    chart.append(blockRow(d, b, X, hw, trackW));
-    if(b.steps.length && !collapsed.has(b.id)) stepRows(d, b, X, trackW).forEach(r => chart.append(r));
-  });
-  if(canWrite){
-    const addTrack = el('div', { class:'track add-track', style:{ width: trackW + 'px' }, title:'Click to add a block at this time' });
-    addTrack.addEventListener('click', e => { const r = addTrack.getBoundingClientRect(); addBlock(r0 + Math.floor((e.clientX - r.left) / hw * 4) * 15); });
-    chart.append(el('div', { class:'row add-row' },
-      el('div', { class:'lab' }, el('button', { class:'add-btn', onclick(){ addBlock(); } }, icon('plus'), 'Add block')), addTrack));
-  }
-  if(isToday && nm >= r0 && nm <= r1) chart.append(el('div', { class:'now', style:{ left: (labW + X(nm)) + 'px' } }, el('span', { text: fmtT(nm) })));
-  wrap.append(chart);
-  return wrap;
-}
-function blockRow(d, b, X, hw, trackW){
-  const dn = b.status === 'done', steps = b.steps, sd = steps.filter(s => s.done).length;
-  const linked = taskById(b.taskId);
-  const row = el('div', { class:'row' + (dn ? ' done' : '') + (ui.drawer === 'block' && ui.block === b.id ? ' sel' : ''), 'data-id': b.id });
-  const chk = el('button', { class:'chk' + (dn ? ' on' : b.status === 'doing' ? ' doing' : ''), role:'checkbox', 'aria-checked': String(dn), 'aria-label': (b.title || 'Block') + ' done', title: dn ? 'Mark as not done' : 'Mark as done', disabled: !canWrite,
-    onclick(e){ e.stopPropagation(); toggleBlock(d, b); } }, dn ? icon('check') : null);
-  const caret = steps.length ? el('button', { class:'icon-btn', style:{ width:'18px', height:'18px', marginLeft:'-6px' }, title: collapsed.has(b.id) ? 'Show steps' : 'Hide steps', 'aria-label':'Toggle steps', 'aria-expanded': String(!collapsed.has(b.id)),
-    onclick(e){ e.stopPropagation(); collapsed.has(b.id) ? collapsed.delete(b.id) : collapsed.add(b.id); saveCollapsed(); renderView(); } }, icon(collapsed.has(b.id) ? 'right' : 'down')) : null;
-  const lab = el('div', { class:'lab', onclick(){ openBlock(b.id); }, title: b.title },
-    caret, chk,
-    el('div', { class:'lt' },
-      el('span', { class:'t' + (b.title ? '' : ' untitled'), text: b.title || 'Untitled block' }),
-      el('span', { class:'tm', text: fmtRange(b.start, b.end) + (steps.length ? ' · ' + sd + '/' + steps.length + ' steps' : '') })),
-    linked ? el('span', { class:'pdot', style:{ background: taskColor(linked), marginLeft:'auto' }, title:'Timeline: ' + (linked.name || 'Untitled task') }) : null);
-  const bw = Math.max(8, (b.end - b.start) / 60 * hw - 2);
-  const bar = el('div', { class:'bar' + (dn ? ' done' : '') + (b.status === 'doing' ? ' doing' : '') + (canWrite ? '' : ' ro'),
-    style:{ left: X(b.start) + 'px', width: bw + 'px', '--c': blockColor(b) }, title: (b.title || 'Untitled block') + ' · ' + fmtRange(b.start, b.end) },
-    canWrite ? el('i', { class:'h l' }) : null, el('span', { class:'bt', text: bw >= 44 ? b.title : '' }), canWrite ? el('i', { class:'h r' }) : null);
-  if(canWrite) wireDrag(d, b, bar, row, X, hw); else bar.addEventListener('click', () => openBlock(b.id));
-  row.append(lab, el('div', { class:'track', style:{ width: trackW + 'px' } }, bar));
-  return row;
-}
-// Steps are laid out one after another inside their block, sized by their minutes.
-function stepRows(d, b, X, trackW){
-  const w = b.steps.map(s => s.mins || 30), total = w.reduce((a, c) => a + c, 0) || 1, span = b.end - b.start;
-  let at = b.start;
-  return b.steps.map((s, i) => {
-    const len = span * w[i] / total, a = at; at += len;
-    const sw = Math.max(6, len / 60 * (X(60) - X(0)) - 2);
-    const chk = el('button', { class:'chk' + (s.done ? ' on' : ''), style:{ width:'15px', height:'15px' }, role:'checkbox', 'aria-checked': String(s.done), 'aria-label': (s.text || 'Step') + ' done', disabled: !canWrite,
-      onclick(e){ e.stopPropagation(); toggleStep(d, b, s); } }, s.done ? icon('check') : null);
-    const row = el('div', { class:'row step-row' + (s.done ? ' done' : ''), style:{ '--row':'32px' } },
-      el('div', { class:'lab', style:{ paddingLeft:'40px' }, onclick(){ openBlock(b.id); }, title: s.text },
-        chk, el('div', { class:'lt' }, el('span', { class:'t' + (s.text ? '' : ' untitled'), style:{ fontSize:'12.5px' }, text: s.text || 'Untitled step' }))),
-      el('div', { class:'track', style:{ width: trackW + 'px' } },
-        el('div', { class:'bar sbar ro' + (s.done ? ' done' : ''), style:{ left: X(a) + 'px', width: sw + 'px', '--c': blockColor(b), top:'6px', height:'20px', fontSize:'11px' }, title: s.text + (s.mins ? ' · ' + fmtDur(s.mins) : ''),
-          onclick(){ openBlock(b.id); } }, el('span', { class:'bt', text: s.mins && sw >= 48 ? fmtDur(s.mins) : '' }))));
-    return row;
+  SHOW_TABS.forEach(id => {
+    const M = MODULES[id];
+    t.append(el('button', { class:'tab' + (ui.tab === id ? ' on' : ''), 'aria-current': ui.tab === id ? 'page' : null, onclick(){ openTab(id); } }, icon(M.icon), M.label));
   });
 }
-function wireDrag(d, b, bar, row, X, hw){
-  bar.addEventListener('pointerdown', e => {
-    if(e.pointerType === 'mouse' && e.button !== 0) return;
-    const kind = e.target.classList.contains('l') ? 'start' : e.target.classList.contains('r') ? 'end' : 'move';
-    drag = { b, bar, kind, x0: e.clientX, s0: b.start, e0: b.end, s: b.start, e: b.end, moved:false };
-    try { bar.setPointerCapture(e.pointerId); } catch(_){}
-  });
-  bar.addEventListener('pointermove', e => {
-    if(!drag || drag.bar !== bar) return;
-    const dx = e.clientX - drag.x0;
-    if(!drag.moved && Math.abs(dx) < 4) return;
-    if(!drag.moved){ drag.moved = true; bar.classList.add('dragging'); }
-    e.preventDefault();
-    const dm = Math.round(dx / hw * 4) * 15;
-    let s = drag.s0, en = drag.e0;
-    if(drag.kind === 'move'){ const len = en - s; s = clamp(s + dm, 0, 1440 - len); en = s + len; }
-    else if(drag.kind === 'start') s = clamp(s + dm, 0, en - 15);
-    else en = clamp(en + dm, s + 15, 1440);
-    drag.s = s; drag.e = en;
-    bar.style.left = X(s) + 'px'; bar.style.width = Math.max(8, (en - s) / 60 * hw - 2) + 'px';
-    const tm = row.querySelector('.tm'); if(tm) tm.textContent = fmtRange(s, en);
-  });
-  const end = cancel => {
-    if(!drag || drag.bar !== bar) return;
-    const g = drag; drag = null;
-    if(cancel){ renderView(); return; }
-    if(!g.moved){ openBlock(b.id); return; }
-    if(g.s !== b.start || g.e !== b.end){ b.start = g.s; b.end = g.e; sortBlocks(d); saveDay(d, 0); }
-    renderView(); if(ui.drawer === 'block' && ui.block === b.id) renderDrawer();
+function renderBanner(){
+  shell.banner.textContent = '';
+  if(ROLE === 'offline') shell.banner.append(el('div', { class:'banner info' }, el('span', { class:'grow', text:'Downloaded copy of “' + (proj().name || 'Untitled project') + '”, saved ' + fmtDate(EMBED.exportedAt) + '. It opens without internet and doesn’t change.' })));
+}
+function moduleCtx(p, mod){
+  return {
+    project: p, editable: canEdit(),
+    data(){ if(!p.mods[mod].data) p.mods[mod].data = MODULES[mod].defaultData(); return p.mods[mod].data; },
+    changed(){ p.mods[mod].editedAt = nowISO(); markChanged(p); },
+    pickImage(cb){ openImagePicker(p, cb); }
   };
-  bar.addEventListener('pointerup', () => end(false));
-  bar.addEventListener('pointercancel', () => end(true));
 }
-function toggleBlock(d, b){
-  if(b.status === 'done'){ b.status = b.steps.some(s => s.done) ? 'doing' : 'todo'; }
-  else { b.status = 'done'; b.doneAt = nowISO(); b.steps.forEach(s => s.done = true); }
-  saveDay(d, 0); renderView(); if(ui.drawer === 'block' && ui.block === b.id) renderDrawer();
-}
-function toggleStep(d, b, s){
-  s.done = !s.done;
-  const all = b.steps.every(x => x.done), some = b.steps.some(x => x.done);
-  if(all && b.status !== 'done'){ b.status = 'done'; b.doneAt = nowISO(); }
-  else if(!all && b.status === 'done') b.status = 'doing';
-  else if(some && b.status === 'todo'){ b.status = 'doing'; b.startedAt = nowISO(); }
-  saveDay(d, 0); renderView(); if(ui.drawer === 'block' && ui.block === b.id) renderDrawer();
-}
-function addBlock(at){
-  const d = ensureDay(ui.date);
-  let s = at;
-  if(s == null){
-    const last = d.blocks.reduce((m, b) => Math.max(m, b.end), 0);
-    s = ui.date === today() ? Math.max(Math.ceil(nowMin() / 15) * 15, last) : (last || 9 * 60);
+async function mountTab(){
+  const seq = ++mountSeq;
+  if(native){ native.destroy(); native = null; }
+  frames.forEach(f => f.iframe.style.display = 'none');
+  shell.native.style.display = 'none';
+  const p = proj(), M = MODULES[ui.tab];
+  if(ROLE === 'owner' && driveOn && Object.values(p.images).some(im => im.driveId && !im.src)){
+    shell.loading.hidden = false;
+    try { await ensureImages(p); } catch(e){ driveError(e); }
+    shell.loading.hidden = true;
+    if(seq !== mountSeq) return;
   }
-  s = clamp(s, 0, 1380);
-  const b = normBlock({ id: uid(), title:'', start: s, end: Math.min(1440, s + 60), status:'todo', steps:[] });
-  d.blocks.push(b); sortBlocks(d); saveDay(d, 0);
-  ui.block = b.id; ui.drawer = 'block'; renderAll();
-  const t = $('#bd-title'); if(t) t.focus();
-}
-function openBlock(id){ tidyBlock(); ui.block = id; ui.drawer = 'block'; renderAll(); }
-
-/* --- block details drawer --- */
-function blockDrawer(d, b, head, body, foot){
-  const ro = !canWrite;
-  let rv = null; const refresh = () => { clearTimeout(rv); rv = setTimeout(renderView, 250); };
-  const save = delay => saveDay(d, delay);
-  head('Block · ' + dayShort(d.date));
-  const title = el('textarea', { class:'bd-title', id:'bd-title', rows:1, placeholder:'What’s this block for?', 'aria-label':'Block name' });
-  title.value = b.title; title.readOnly = ro;
-  const fit = () => { title.style.height = 'auto'; title.style.height = title.scrollHeight + 'px'; };
-  title.addEventListener('input', () => { b.title = title.value.replace(/\n/g, ' '); fit(); save(700); refresh(); });
-  title.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); title.blur(); } });
-  body.append(title); requestAnimationFrame(fit);
-
-  const si = el('input', { type:'time', step:'900', value: toHM(b.start), 'aria-label':'Start time' });
-  const ei = el('input', { type:'time', step:'900', value: toHM(b.end % 1440), 'aria-label':'End time' });
-  const dur = el('span', { class:'dur', text: fmtDur(b.end - b.start) });
-  si.disabled = ro; ei.disabled = ro;
-  const setTimes = () => {
-    const s = fromHM(si.value); let e = fromHM(ei.value);
-    if(s == null || e == null) return;
-    if(e === 0 && s > 0) e = 1440;
-    if(e <= s){ toast('The end time has to be after the start.'); si.value = toHM(b.start); ei.value = toHM(b.end % 1440); return; }
-    b.start = s; b.end = e; sortBlocks(d); save(0); dur.textContent = fmtDur(e - s); renderView();
-  };
-  si.addEventListener('change', setTimes); ei.addEventListener('change', setTimes);
-  body.append(el('div', { class:'field' }, el('span', { class:'flabel', text:'Time' }), el('div', { class:'times' }, si, el('span', { text:'to' }), ei, dur)));
-
-  const seg = el('div', { class:'seg', role:'group', 'aria-label':'Status' },
-    Object.keys(STATUS).map(k => el('button', { class: b.status === k ? 'on' : '', text: STATUS[k], 'aria-pressed': String(b.status === k), disabled: ro,
-      onclick(){ if(b.status === k) return; b.status = k; if(k === 'done'){ b.doneAt = nowISO(); b.steps.forEach(s => s.done = true); } save(0); renderView(); renderDrawer(); } })));
-  body.append(el('div', { class:'field' }, el('span', { class:'flabel', text:'Status' }), seg));
-
-  // Steps
-  const sd = b.steps.filter(s => s.done).length;
-  const list = el('div', { class:'steps-ed' });
-  b.steps.forEach((s, i) => {
-    const cb = el('input', { type:'checkbox', 'aria-label':'Step done' }); cb.checked = s.done; cb.disabled = ro;
-    cb.addEventListener('change', () => toggleStep(d, b, s));
-    const tx = el('input', { class:'step-in', value: s.text, placeholder:'Describe the step', 'aria-label':'Step ' + (i + 1) }); tx.readOnly = ro;
-    tx.addEventListener('input', () => { s.text = tx.value; save(700); refresh(); });
-    tx.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); addStep(i + 1); } });
-    const mi = el('input', { class:'step-min', type:'number', min:'5', step:'5', value: s.mins || '', placeholder:'min', 'aria-label':'Minutes for this step' }); mi.readOnly = ro;
-    mi.addEventListener('change', () => { const v = Math.round(+mi.value); s.mins = v > 0 ? v : null; save(0); renderView(); });
-    list.append(el('div', { class:'step' + (s.done ? ' done' : '') }, cb, tx, mi,
-      ro ? null : el('button', { class:'icon-btn', title:'Delete step', 'aria-label':'Delete step', onclick(){ b.steps = b.steps.filter(x => x !== s); save(0); renderView(); renderDrawer(); } }, icon('close'))));
-  });
-  function addStep(at){
-    const s = normStep({ text:'' }); b.steps.splice(at == null ? b.steps.length : at, 0, s); collapsed.delete(b.id); saveCollapsed();
-    save(0); renderView(); renderDrawer();
-    const ins = shell.drawer.querySelectorAll('.step-in'), t = ins[at == null ? ins.length - 1 : at]; if(t) t.focus();
-  }
-  body.append(el('div', { class:'field' },
-    el('span', { class:'flabel', text: 'Steps' + (b.steps.length ? ' · ' + sd + ' of ' + b.steps.length + ' done' : '') }),
-    b.steps.length ? list : el('div', { class:'note', text: ro ? 'No steps.' : 'Break big work into smaller steps you can check off.' }),
-    ro ? null : el('button', { class:'add-btn', onclick(){ addStep(); } }, icon('plus'), 'Add step')));
-
-  const groupOf = t => phaseOf(t) ? t.phaseId : null;
-  const choices = [...TASKS.values()].filter(t => t.status !== 'done' || t.id === b.taskId);
-  const sel = el('select', { class:'sel-in', 'aria-label':'Timeline task' }, el('option', { value:'', text:'Not linked' }));
-  phases().map(p => [p.id, p.name || 'Untitled phase']).concat([[null, 'No phase']]).forEach(([pid, pname]) => {
-    const list = choices.filter(t => groupOf(t) === pid).sort((a, c) => a.start.localeCompare(c.start));
-    if(list.length) sel.append(el('optgroup', { label: pname }, list.map(t => el('option', { value: t.id, text: (t.name || 'Untitled task') + (t.status === 'done' ? ' (done)' : '') }))));
-  });
-  sel.value = taskById(b.taskId) ? b.taskId : ''; sel.disabled = ro;
-  sel.addEventListener('change', () => { b.taskId = sel.value || null; save(0); renderView(); renderDrawer(); });
-  const lt = taskById(b.taskId);
-  body.append(el('div', { class:'field' }, el('label', { class:'flabel', text:'Timeline task' }), sel,
-    lt ? el('button', { class:'linkbtn', style:{ alignSelf:'flex-start', fontSize:'12.5px' }, text:'Open “' + (lt.name || 'Untitled task') + '” on the timeline', onclick(){ openTask(lt.id, true); } })
-      : ro ? null : el('button', { class:'add-btn', onclick(){
-          const t = createTask({ name: b.title || 'Untitled task', start: d.date, end: d.date, status: b.status === 'done' ? 'done' : 'doing' });
-          b.taskId = t.id; save(0); renderView(); renderDrawer(); toast('Added to your timeline and linked to this block.');
-        } }, icon('plus'), 'Add this to the timeline'),
-    el('div', { class:'note', text:'Link time spent today to a longer task on your timeline.' })));
-  const notes = el('textarea', { class:'ta', placeholder:'Details, links, who’s involved…', 'aria-label':'Notes' });
-  notes.value = b.note || ''; notes.readOnly = ro;
-  notes.addEventListener('input', () => { b.note = notes.value; save(800); });
-  body.append(el('div', { class:'field' }, el('span', { class:'flabel', text:'Notes' }), notes));
-  if(b.from) body.append(el('div', { class:'note', text:'Carried over from ' + dayShort(b.from) + '.' }));
-  foot.append(el('span', { text: ro ? 'View only' : 'Changes save automatically' }),
-    ro ? null : el('button', { class:'btn ghost danger', text:'Delete block', async onclick(){
-      if(!await ask('Delete “' + (b.title || 'Untitled block') + '”?', 'Delete')) return;
-      d.blocks = d.blocks.filter(x => x !== b); save(0); closeDrawer();
-    } }));
-}
-
-/* =====================================================================
-   VIEW · Past days (what got done, day by day)
-   ===================================================================== */
-function renderLog(host){
-  const t = today();
-  const days = [...DAYS.values()].filter(d => d.date < t && (d.blocks.length || d.focus)).sort((a, b) => b.date.localeCompare(a.date));
-  const page = el('div', { class:'page log' });
-  page.append(el('h1', { text:'Past days' }), el('p', { class:'sub', text:'What you planned and what you finished, day by day.' }));
-  const ws = weekStart(t);
-  const week = [...DAYS.values()].filter(d => d.date >= ws && d.date <= t);
-  const wDone = week.flatMap(d => d.blocks.filter(b => b.status === 'done'));
-  const lw = addDays(ws, -7);
-  const last = [...DAYS.values()].filter(d => d.date >= lw && d.date < ws).flatMap(d => d.blocks.filter(b => b.status === 'done'));
-  page.append(el('div', { class:'week-sum' },
-    el('div', { class:'tile' }, el('b', { text: String(wDone.length) }), el('span', { text:'Done this week' })),
-    el('div', { class:'tile' }, el('b', { text: fmtHours(minsOf(wDone)) }), el('span', { text:'Hours this week' })),
-    el('div', { class:'tile' }, el('b', { text: fmtHours(minsOf(last)) }), el('span', { text:'Hours last week' }))));
-  if(!days.length){
-    page.append(el('div', { class:'empty-day', text:'Days you’ve planned show up here once they’re over, with everything you got done.' }));
-    host.append(page); return;
-  }
-  const latestOpen = days.find(d => d.blocks.some(b => b.status !== 'done' && !b.movedTo));
-  let lastWeek = null;
-  days.forEach(d => {
-    const w = weekStart(d.date);
-    if(w !== lastWeek){
-      lastWeek = w;
-      const n = daysBetween(w, ws) / 7;
-      page.append(el('div', { class:'wk', text: n === 0 ? 'This week' : n === 1 ? 'Last week' : 'Week of ' + fmtD(parseDay(w)) }));
+  if(M.frame){
+    const key = p.id + ':' + ui.tab;
+    let f = frames.get(key);
+    if(!f){
+      const iframe = el('iframe', { class:'frame', title: M.label });
+      iframe.srcdoc = frameDoc(ui.tab, p);
+      shell.view.append(iframe);
+      f = { iframe, pid:p.id, mod:ui.tab }; frames.set(key, f);
     }
-    const blocks = d.blocks.slice().sort((a, b) => a.start - b.start);
-    const dn = blocks.filter(b => b.status === 'done'), open = blocks.filter(b => b.status !== 'done');
-    const movable = open.filter(b => !b.movedTo);
-    const rel = relDay(d.date);
-    page.append(el('article', { class:'log-day' },
-      el('div', { class:'ld-head' },
-        el('button', { class:'ld-date', onclick(){ goDay(d.date); }, title:'Open this day' }, dayTitle(d.date)),
-        rel ? el('span', { class:'rel', text: rel }) : null,
-        el('span', { class:'ld-stats', text: blocks.length ? dn.length + ' of ' + blocks.length + ' done · ' + fmtHours(minsOf(dn)) : '' })),
-      d.focus ? el('p', { class:'ld-focus', text: d.focus }) : null,
-      dn.length ? el('ul', { class:'ld-list' }, dn.map(b => {
-        const x = taskById(b.taskId);
-        return el('li', null, icon('check'), el('span', { class:'lt2', text: b.title || 'Untitled block' }),
-          x ? el('span', { class:'chip', text: x.name || 'Untitled task' }) : null,
-          b.steps.length ? el('span', { class:'chip', text: plural(b.steps.length, 'step') }) : null,
-          el('span', { class:'lm', text: fmtRange(b.start, b.end) }));
-      })) : el('p', { class:'ld-none', text: blocks.length ? 'Nothing was marked done.' : 'No blocks.' }),
-      open.length ? el('div', { class:'ld-open' }, el('span', { class:'lbl', text:'Not finished' }),
-        open.map(b => el('span', { class:'ld-tag', text: (b.title || 'Untitled block') + (b.movedTo ? ' → ' + dayShort(b.movedTo) : '') }))) : null,
-      canWrite && d === latestOpen && movable.length ? el('div', { class:'ld-acts' },
-        el('button', { class:'btn', onclick(){ carryOver(d, movable); } }, 'Add ' + (movable.length === 1 ? 'it' : 'these ' + movable.length) + ' to today')) : null));
-  });
-  host.append(page);
+    f.iframe.style.display = 'block';
+  } else {
+    shell.native.style.display = 'block'; shell.native.scrollTop = 0; shell.native.scrollLeft = 0;
+    native = M.mount(shell.native, moduleCtx(p, ui.tab));
+  }
 }
-function carryOver(from, list){
-  const t = ensureDay(today());
-  list.forEach(b => {
-    const len = b.end - b.start;
-    let s = b.start;
-    if(t.blocks.some(x => s < x.end && s + len > x.start)) s = Math.min(1440 - len, t.blocks.reduce((m, x) => Math.max(m, x.end), s));
-    t.blocks.push(normBlock({ id: uid(), title: b.title, start: s, end: s + len, status:'todo', taskId: b.taskId || null, note: b.note || '', from: from.date,
-      steps: b.steps.map(st => ({ text: st.text, mins: st.mins, done: st.done })) }));
-    b.movedTo = t.date;
-  });
-  sortBlocks(t); saveDay(t, 0); saveDay(from, 0);
-  toast(plural(list.length, 'block') + ' added to today.');
-  goDay(t.date);
+function renderAll(remount){
+  if(!shell.root) buildShell();
+  document.title = canEdit() ? (W.title || 'Anium.planning') : (proj().name || 'Shared project');
+  renderSidebar(); renderHeader(); renderBanner(); renderTabs();
+  if(remount !== false || native) mountTab();
+  renderDrawer();
+}
+function openProject(id){
+  if(id === ui.project){ ui.sideOpen = false; renderSidebar(); return; }
+  ui.project = id; ui.noteId = null; ui.selImg = null; ui.sideOpen = false;
+  destroyFrames(f => f.pid !== id);
+  renderAll(true);
+}
+function openTab(id){ ui.tab = id; if(ui.drawer === 'info' && id !== 'moodboard') ui.drawer = null; renderHeader(); renderTabs(); mountTab(); renderDrawer(); }
+function newProject(){
+  const p = blankProject(''); p.name = ''; prepareProject(p);
+  W.projects.push(p); W._indexDirty = true; markChanged(p); openProject(p.id);
+  setTimeout(() => { const n = $('.p-name'); if(n){ n.focus(); n.select(); } }, 0);
+}
+function duplicateProject(src){
+  const p = clone(plain(src)); p.id = uid(); p.name = (src.name || 'Untitled project') + ' (copy)'; p.history = []; p.createdAt = p.updatedAt = nowISO(); delete p.drive;
+  Object.values(p.images).forEach(im => { if(!im.src && src.images[im.id]) im.src = src.images[im.id].src; delete im.driveId; });
+  if(p.mods.scope.data) p.mods.scope.data.options.forEach(o => o.id = uid());
+  prepareProject(p);
+  W.projects.splice(W.projects.indexOf(src) + 1, 0, p); W._indexDirty = true; markChanged(p); openProject(p.id);
+}
+async function deleteProject(p){
+  if(!await askConfirm('Delete “' + (p.name || 'Untitled project') + '” and everything in it?' + (p.drive && p.drive.folderId ? ' Its Google Drive folder goes to your Drive trash.' : ''), 'Delete project')) return;
+  W.projects = W.projects.filter(x => x !== p);
+  destroyFrames(f => f.pid === p.id);
+  if(ui.project === p.id) ui.project = W.projects[0].id;
+  if(driveOn && p.drive && p.drive.folderId){ try { await Drive.trash(p.drive.folderId); } catch(e){} }
+  W._indexDirty = true; markChanged(null); renderAll(true);
 }
 
 /* =====================================================================
-   VIEW · Timeline (every task, from your first day to what's ahead)
+   SHELL · sharing, download, import
    ===================================================================== */
-const ZOOM = { day: 34, week: 12, month: 4 };
-const tl = { zoom: ZOOM[LS.get('anium-planner:zoom')] ? LS.get('anium-planner:zoom') : 'week', q:'', show:'all', left:null, top:null, reveal:null, qt:null };
-const closedPhases = new Set((() => { try { return JSON.parse(LS.get('anium-planner:closed-phases') || '[]'); } catch(e){ return []; } })());
-const groupKey = t => phaseOf(t) ? t.phaseId : '_none';
-const taskText = t => [t.name, t.note, (phaseOf(t) || {}).name, t.files.map(f => f.name).join(' ')].join(' ');
-function renderTimeline(host){
-  const t0 = today(), ts = terms(tl.q), all = [...TASKS.values()];
-  const page = el('div', { class:'tl-page' });
-  const nameIn = el('input', { class:'tl-name', value: (PROJECT && PROJECT.name) || '', placeholder:'Name this project', 'aria-label':'Project name' });
-  nameIn.readOnly = !canWrite;
-  nameIn.addEventListener('input', () => { PROJECT = PROJECT || newProject(); PROJECT.name = nameIn.value; saveProject(800); });
-  const q = el('input', { class:'tl-q', type:'search', value: tl.q, placeholder:'Filter tasks', 'aria-label':'Filter tasks' });
-  q.addEventListener('input', () => {
-    tl.q = q.value; clearTimeout(tl.qt);
-    tl.qt = setTimeout(() => { renderView(); const n = $('.tl-q'); if(n){ n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 160);
-  });
-  const seg = (opts, cur, on, label) => el('div', { class:'seg', role:'group', 'aria-label': label },
-    opts.map(([k, l]) => el('button', { class: cur === k ? 'on' : '', text: l, 'aria-pressed': String(cur === k), onclick(){ on(k); } })));
-  page.append(el('div', { class:'tl-head' },
-    el('div', { class:'tl-title' }, nameIn, el('p', { class:'sub', text:'Every task you’ve planned, from your first day to what’s ahead. Drag a bar to change its dates; click a task for details and files.' })),
-    el('div', { class:'tl-tools' }, q,
-      seg([['all', 'All'], ['open', 'Open'], ['done', 'Done']], tl.show, k => { tl.show = k; renderView(); }, 'Show'),
-      seg([['day', 'Days'], ['week', 'Weeks'], ['month', 'Months']], tl.zoom, k => { tl.zoom = k; LS.set('anium-planner:zoom', k); tl.left = null; renderView(); }, 'Zoom'),
-      el('button', { class:'btn', text:'Today', onclick(){ tl.left = null; renderView(); } }),
-      canWrite ? el('button', { class:'btn ghost', title:'Add a phase', onclick(){ const ph = addPhase('New phase'); openPhase(ph.id); } }, icon('plus'), el('span', { class:'hide-sm', text:'Phase' })) : null,
-      canWrite ? el('button', { class:'btn primary', onclick(){ newTask(null); } }, icon('plus'), 'Task') : null)));
-
-  const filtering = ts.length > 0 || tl.show !== 'all';
-  const match = t => (tl.show === 'all' || (tl.show === 'done') === (t.status === 'done')) && (!ts.length || hits(taskText(t), ts));
-  // The range runs from your first planned day (or task) to well past the last one.
-  let min = t0, max = addDays(t0, 30);
-  all.forEach(t => { if(t.start < min) min = t.start; if(t.end > max) max = t.end; });
-  DAYS.forEach((d, k) => { if(!d.blocks.length) return; if(k < min) min = k; if(k > max) max = k; });
-  if(PROJECT && PROJECT.createdAt){ const c = localDay(new Date(PROJECT.createdAt)); if(c < min) min = c; }
-  min = addDays(weekStart(min), -7);
-  max = addDays(max, tl.zoom === 'month' ? 120 : tl.zoom === 'week' ? 60 : 21);
-  const dw = ZOOM[tl.zoom], nDays = daysBetween(min, max) + 1, trackW = nDays * dw;
-  const X = s => daysBetween(min, s) * dw;
-  const labW = window.innerWidth <= 600 ? 150 : 270;
-  const wrap = el('div', { class:'tl-wrap', style:{ '--labw': labW + 'px' } });
-  const chart = el('div', { class:'tl-chart', style:{ width: (labW + trackW) + 'px' } });
-
-  // Axis: months on top, days (or week starts) below
-  const months = el('div', { class:'tl-months', style:{ width: trackW + 'px' } }), daysRow = el('div', { class:'tl-days', style:{ width: trackW + 'px' } });
-  for(let d = parseDay(min); localDay(d) <= max; d.setMonth(d.getMonth() + 1, 1)){
-    const s = localDay(d);
-    // A month that only shows its last few days gets no label, so it can't overlap the next one
-    if(s === min && d.getDate() > 1 && X(localDay(new Date(d.getFullYear(), d.getMonth() + 1, 1))) - X(s) < 110) continue;
-    months.append(el('span', { style:{ left: X(s) + 'px' }, text: tl.zoom === 'month' ? MON[d.getMonth()] + (d.getMonth() === 0 || s === min ? ' ' + d.getFullYear() : '') : MONTH[d.getMonth()] + ' ' + d.getFullYear() }));
-  }
-  if(tl.zoom === 'day') for(let i = 0; i < nDays; i++){
-    const s = addDays(min, i), dd = parseDay(s);
-    daysRow.append(el('span', { class: (dd.getDay() % 6 === 0 ? 'wk' : '') + (s === t0 ? ' on' : ''), style:{ left: i * dw + 'px', width: dw + 'px' }, text: String(dd.getDate()) }));
-  }
-  else if(tl.zoom === 'week') for(let i = 0; i < nDays; i += 7) daysRow.append(el('span', { style:{ left: i * dw + 'px', width: 7 * dw + 'px' }, text: String(parseDay(addDays(min, i)).getDate()) }));
-  const corner = el('div', { class:'lab tl-corner' });
-  chart.append(el('div', { class:'tl-axis' }, corner, el('div', { class:'tl-axis-r', style:{ width: trackW + 'px' } }, months, daysRow)));
-  // Grid (weeks start on Monday; the range always starts on one)
-  chart.append(el('div', { class:'tl-grid', style:{ left: labW + 'px', width: trackW + 'px', backgroundImage: tl.zoom === 'day'
-    ? 'repeating-linear-gradient(to right, transparent 0 ' + 5 * dw + 'px, var(--wknd) ' + 5 * dw + 'px ' + 7 * dw + 'px), repeating-linear-gradient(to right, var(--grid) 0 1px, transparent 1px ' + dw + 'px)'
-    : 'repeating-linear-gradient(to right, var(--grid) 0 1px, transparent 1px ' + 7 * dw + 'px)' } }));
-
-  // Daily work: hours finished each day, back to the first day
-  const work = el('div', { class:'tl-track', style:{ width: trackW + 'px' } });
-  let total = 0;
-  DAYS.forEach((d, k) => {
-    if(!d.blocks.length) return;
-    const dn = d.blocks.filter(b => b.status === 'done'), m = minsOf(dn); total += m;
-    work.append(el('button', { class:'tl-work' + (m ? '' : ' none'), style:{ left: X(k) + 'px', width: Math.max(2, dw - 2) + 'px', height: (m ? Math.max(4, Math.min(1, m / 480) * 26) : 3) + 'px' },
-      title: dayTitle(k) + ' · ' + fmtHours(m) + ' done · ' + dn.length + ' of ' + d.blocks.length + ' blocks', 'aria-label':'Open ' + dayTitle(k), onclick(){ goDay(k); } }));
-  });
-  chart.append(el('div', { class:'tl-row work-row' }, el('div', { class:'lab' }, el('div', { class:'lt' }, el('span', { class:'t', text:'Daily work' }), el('span', { class:'tm', text: fmtHours(total) + ' done in all · click a day to open it' }))), work));
-
-  const logged = new Map();
-  DAYS.forEach(d => d.blocks.forEach(b => { if(!b.taskId) return; const a = logged.get(b.taskId) || []; a.push({ date: d.date, done: b.status === 'done', mins: b.end - b.start }); logged.set(b.taskId, a); }));
-  let shown = 0;
-  phases().map(p => ({ key: p.id, ph: p })).concat([{ key:'_none', ph:null }]).forEach(gp => {
-    const list = all.filter(t => groupKey(t) === gp.key).sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
-    const vis = list.filter(match);
-    if(gp.key === '_none' && !list.length) return;
-    if(filtering && !vis.length) return;
-    const closed = closedPhases.has(gp.key) && !filtering;
-    const color = gp.ph ? gp.ph.color : '#7D7A75', dn = list.filter(t => t.status === 'done').length;
-    const tr = el('div', { class:'tl-track', style:{ width: trackW + 'px' } });
-    if(list.length){
-      const a = list.reduce((m, t) => t.start < m ? t.start : m, list[0].start), b = list.reduce((m, t) => t.end > m ? t.end : m, list[0].end);
-      tr.append(el('div', { class:'tl-span', style:{ left: X(a) + 'px', width: (daysBetween(a, b) + 1) * dw + 'px', '--c': color } }));
-    }
-    chart.append(el('div', { class:'tl-row ph-row' },
-      el('div', { class:'lab' },
-        el('button', { class:'icon-btn caret', 'aria-label': closed ? 'Show tasks' : 'Hide tasks', 'aria-expanded': String(!closed),
-          onclick(){ closed ? closedPhases.delete(gp.key) : closedPhases.add(gp.key); LS.set('anium-planner:closed-phases', JSON.stringify([...closedPhases])); renderView(); } }, icon(closed ? 'right' : 'down')),
-        el('span', { class:'pdot', style:{ background: color } }),
-        el('button', { class:'ph-name', text: gp.ph ? (gp.ph.name || 'Untitled phase') : 'No phase', disabled: !gp.ph, title: gp.ph ? 'Rename or recolor this phase' : null, onclick(){ if(gp.ph) openPhase(gp.ph.id); } }),
-        el('span', { class:'ph-ct', text: dn + '/' + list.length }),
-        canWrite ? el('button', { class:'icon-btn add-in', title:'Add a task here', 'aria-label':'Add a task to ' + (gp.ph ? gp.ph.name : 'No phase'), onclick(){ newTask(gp.ph ? gp.ph.id : null); } }, icon('plus')) : null),
-      tr));
-    if(closed) return;
-    if(!list.length) chart.append(el('div', { class:'tl-row' }, el('div', { class:'lab empty-lab', text:'No tasks in this phase yet' }), el('div', { class:'tl-track', style:{ width: trackW + 'px' } })));
-    vis.forEach(t => { chart.append(taskRow(t, X, dw, trackW, logged.get(t.id) || [], ts)); shown++; });
-  });
-  if(!all.length) chart.append(el('div', { class:'tl-row', style:{ '--row':'64px' } }, el('div', { class:'lab empty-lab', style:{ whiteSpace:'normal', lineHeight:'1.4' }, text: canWrite ? 'No tasks yet. Add one with + Task, or tell Plan my day about work that takes several days.' : 'No tasks yet.' }), el('div', { class:'tl-track', style:{ width: trackW + 'px' } })));
-  else if(filtering && !shown) chart.append(el('div', { class:'tl-row' }, el('div', { class:'lab empty-lab', text:'No tasks match.' }), el('div', { class:'tl-track', style:{ width: trackW + 'px' } })));
-  corner.textContent = filtering ? shown + ' of ' + plural(all.length, 'task') : plural(all.length, 'task');
-  chart.append(el('div', { class:'now tl-now', style:{ left: (labW + X(t0) + dw / 2) + 'px' } }));
-  wrap.append(chart); page.append(wrap); host.append(page);
-
-  const rt = tl.reveal && TASKS.get(tl.reveal);
-  if(rt){
-    wrap.scrollLeft = Math.max(0, X(rt.start) - (wrap.clientWidth - labW) / 3);
-    const r = chart.querySelector('[data-id="' + rt.id + '"]'); if(r) wrap.scrollTop = Math.max(0, r.offsetTop - wrap.clientHeight / 3);
-    tl.reveal = null;
-  } else if(tl.left != null){ wrap.scrollLeft = tl.left; wrap.scrollTop = tl.top || 0; }
-  else wrap.scrollLeft = Math.max(0, X(t0) - (wrap.clientWidth - labW) / 3);
-  tl.left = wrap.scrollLeft; tl.top = wrap.scrollTop;
-  wrap.addEventListener('scroll', () => { tl.left = wrap.scrollLeft; tl.top = wrap.scrollTop; }, { passive:true });
-}
-function taskRow(t, X, dw, trackW, log, ts){
-  const dn = t.status === 'done', color = taskColor(t);
-  const row = el('div', { class:'tl-row' + (dn ? ' done' : '') + (ui.drawer === 'task' && ui.task === t.id ? ' sel' : ''), 'data-id': t.id });
-  const chk = el('button', { class:'chk' + (dn ? ' on' : t.status === 'doing' ? ' doing' : ''), role:'checkbox', 'aria-checked': String(dn), 'aria-label': (t.name || 'Task') + ' done', title: dn ? 'Mark as not done' : 'Mark as done', disabled: !canWrite,
-    onclick(e){ e.stopPropagation(); setTaskStatus(t, dn ? 'todo' : 'done'); } }, dn ? icon('check') : null);
-  const hrs = log.filter(x => x.done).reduce((s, x) => s + x.mins, 0);
-  row.append(el('div', { class:'lab', onclick(){ openTask(t.id); }, title: t.name },
-    chk, el('div', { class:'lt' },
-      el('span', { class:'t' + (t.name ? '' : ' untitled') }, mark(t.name || 'Untitled task', ts)),
-      el('span', { class:'tm', text: taskSpan(t) + (hrs ? ' · ' + fmtHours(hrs) : '') + (t.files.length ? ' · ' + plural(t.files.length, 'file') : '') }))));
-  const tr = el('div', { class:'tl-track', style:{ width: trackW + 'px' } });
-  log.forEach(x => tr.append(el('i', { class:'tl-tick' + (x.done ? ' on' : ''), style:{ left: X(x.date) + 'px', width: Math.max(2, dw - 2) + 'px', '--c': color } })));
-  const w = (daysBetween(t.start, t.end) + 1) * dw;
-  const tip = (t.name || 'Untitled task') + ' · ' + taskSpan(t) + ' · ' + STATUS[t.status];
-  const bar = t.milestone
-    ? el('div', { class:'tl-ms' + (dn ? ' done' : '') + (canWrite ? '' : ' ro'), style:{ left: (X(t.start) + dw / 2 - 8) + 'px', '--c': color }, title: tip })
-    : el('div', { class:'bar tl-bar' + (dn ? ' done' : '') + (t.status === 'doing' ? ' doing' : '') + (canWrite ? '' : ' ro'), style:{ left: X(t.start) + 'px', width: Math.max(4, w - 2) + 'px', '--c': color }, title: tip },
-        canWrite ? el('i', { class:'h l' }) : null, el('span', { class:'bt', text: w >= 60 ? t.name : '' }), canWrite ? el('i', { class:'h r' }) : null);
-  if(canWrite) wireTaskDrag(t, bar, row, X, dw); else bar.addEventListener('click', () => openTask(t.id));
-  tr.append(bar); row.append(tr);
-  return row;
-}
-function wireTaskDrag(t, bar, row, X, dw){
-  bar.addEventListener('pointerdown', e => {
-    if(e.pointerType === 'mouse' && e.button !== 0) return;
-    const kind = t.milestone ? 'move' : e.target.classList.contains('l') ? 'start' : e.target.classList.contains('r') ? 'end' : 'move';
-    drag = { bar, kind, x0: e.clientX, s0: t.start, e0: t.end, s: t.start, e: t.end, moved:false };
-    try { bar.setPointerCapture(e.pointerId); } catch(_){}
-  });
-  bar.addEventListener('pointermove', e => {
-    if(!drag || drag.bar !== bar) return;
-    const dx = e.clientX - drag.x0;
-    if(!drag.moved && Math.abs(dx) < 4) return;
-    if(!drag.moved){ drag.moved = true; bar.classList.add('dragging'); }
-    e.preventDefault();
-    const dd = Math.round(dx / dw);
-    let s = drag.s0, en = drag.e0;
-    if(drag.kind === 'move'){ s = addDays(drag.s0, dd); en = addDays(drag.e0, dd); }
-    else if(drag.kind === 'start'){ s = addDays(drag.s0, dd); if(s > en) s = en; }
-    else { en = addDays(drag.e0, dd); if(en < s) en = s; }
-    drag.s = s; drag.e = en;
-    bar.style.left = (t.milestone ? X(s) + dw / 2 - 8 : X(s)) + 'px';
-    if(!t.milestone) bar.style.width = Math.max(4, (daysBetween(s, en) + 1) * dw - 2) + 'px';
-    const tm = row.querySelector('.tm'); if(tm) tm.textContent = fmtDay(s) + (en > s ? ' – ' + fmtDay(en) : '');
-  });
-  const end = cancel => {
-    if(!drag || drag.bar !== bar) return;
-    const g = drag; drag = null;
-    if(cancel){ renderView(); return; }
-    if(!g.moved){ openTask(t.id); return; }
-    if(g.s !== t.start || g.e !== t.end){ t.start = g.s; t.end = t.milestone ? g.s : g.e; saveTask(t, 0); }
-    renderView(); if(ui.drawer === 'task' && ui.task === t.id) renderDrawer();
-  };
-  bar.addEventListener('pointerup', () => end(false));
-  bar.addEventListener('pointercancel', () => end(true));
-}
-function newTask(phaseId){
-  const t = createTask({ phaseId, start: today(), end: addDays(today(), 2) });
-  if(phaseId) closedPhases.delete(phaseId);
-  openTask(t.id, true);
-  const n = $('#td-title'); if(n) n.focus();
-}
-function openTask(id, reveal){
-  tidyBlock();
-  if(!taskById(id)) return;
-  ui.task = id; ui.drawer = 'task';
-  if(reveal){ const t = taskById(id); closedPhases.delete(groupKey(t)); if(!match0(t)){ tl.q = ''; tl.show = 'all'; } tl.reveal = id; }
-  if(ui.tab !== 'timeline'){ ui.tab = 'timeline'; stashUI(); }
-  renderAll();
-}
-const match0 = t => (tl.show === 'all' || (tl.show === 'done') === (t.status === 'done')) && (!terms(tl.q).length || hits(taskText(t), terms(tl.q)));
-function openPhase(id){ tidyBlock(); ui.phase = id; ui.drawer = 'phase'; if(ui.tab !== 'timeline'){ ui.tab = 'timeline'; stashUI(); } renderAll(); const n = $('#ph-name'); if(n){ n.focus(); n.select(); } }
-
-/* --- task details --- */
-let attBusy = 0;
-function taskDrawer(t, head, body, foot){
-  const ro = !canWrite, save = delay => saveTask(t, delay);
-  let rv = null; const refresh = () => { clearTimeout(rv); rv = setTimeout(renderView, 250); };
-  const ph = phaseOf(t);
-  head(ph ? ph.name : 'Task');
-  const title = el('textarea', { class:'bd-title', id:'td-title', rows:1, placeholder:'Name this task', 'aria-label':'Task name' });
-  title.value = t.name; title.readOnly = ro;
-  const fit = () => { title.style.height = 'auto'; title.style.height = title.scrollHeight + 'px'; };
-  title.addEventListener('input', () => { t.name = title.value.replace(/\n/g, ' '); fit(); save(700); refresh(); });
-  title.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); title.blur(); } });
-  body.append(title); requestAnimationFrame(fit);
-
-  const si = el('input', { type:'date', value: t.start, 'aria-label':'Start date' }), ei = el('input', { type:'date', value: t.end, 'aria-label':'End date' });
-  si.disabled = ro; ei.disabled = ro || t.milestone;
-  const len = el('span', { class:'dur', text: t.milestone ? 'One day' : plural(daysBetween(t.start, t.end) + 1, 'day') });
-  const setDates = () => {
-    const s = si.value, e = t.milestone ? si.value : ei.value;
-    if(!isDay(s) || !isDay(e)) return;
-    if(e < s){ toast('The end date can’t be before the start.'); si.value = t.start; ei.value = t.end; return; }
-    t.start = s; t.end = e; save(0); len.textContent = t.milestone ? 'One day' : plural(daysBetween(s, e) + 1, 'day'); renderView();
-  };
-  si.addEventListener('change', setDates); ei.addEventListener('change', setDates);
-  const ms = el('input', { type:'checkbox', id:'td-ms' }); ms.checked = t.milestone; ms.disabled = ro;
-  ms.addEventListener('change', () => { t.milestone = ms.checked; if(t.milestone) t.end = t.start; save(0); renderView(); renderDrawer(); });
-  body.append(el('div', { class:'field' }, el('span', { class:'flabel', text:'Dates' }), el('div', { class:'times' }, si, el('span', { text:'to' }), ei, len),
-    el('label', { class:'plan-opt', for:'td-ms' }, ms, 'Milestone (a single key date)')));
-  const segOf = (opts, cur, on, label) => el('div', { class:'seg', role:'group', 'aria-label': label },
-    Object.keys(opts).map(k => el('button', { class: cur === k ? 'on' : '', text: opts[k], 'aria-pressed': String(cur === k), disabled: ro, onclick(){ on(k); } })));
-  body.append(el('div', { class:'field' }, el('span', { class:'flabel', text:'Status' }), segOf(STATUS, t.status, k => setTaskStatus(t, k), 'Status')));
-  body.append(el('div', { class:'field' }, el('span', { class:'flabel', text:'Priority' }), segOf(PRIORITY, t.priority, k => { t.priority = k; save(0); renderDrawer(); }, 'Priority')));
-  const psel = el('select', { class:'sel-in', 'aria-label':'Phase' }, el('option', { value:'', text:'No phase' }), phases().map(p => el('option', { value: p.id, text: p.name || 'Untitled phase' })));
-  psel.value = ph ? ph.id : ''; psel.disabled = ro;
-  psel.addEventListener('change', () => { t.phaseId = psel.value || null; save(0); renderView(); renderDrawer(); });
-  body.append(el('div', { class:'field' }, el('label', { class:'flabel', text:'Phase' }), psel));
-  const notes = el('textarea', { class:'ta', placeholder:'Details, decisions, who’s involved…', 'aria-label':'Notes' });
-  notes.value = t.note; notes.readOnly = ro;
-  notes.addEventListener('input', () => { t.note = notes.value; save(800); });
-  body.append(el('div', { class:'field' }, el('span', { class:'flabel', text:'Notes' }), notes));
-  body.append(attachmentsField(t, ro));
-  const log = loggedFor(t.id), doneM = minsOf(log.filter(x => x.b.status === 'done').map(x => x.b));
-  body.append(el('div', { class:'field' },
-    el('span', { class:'flabel', text:'Time logged' + (log.length ? ' · ' + fmtHours(doneM) + ' done' : '') }),
-    log.length ? el('div', { class:'sr-group' }, log.slice(0, 40).map(x => el('button', { class:'sr', onclick(){ goDay(x.date); openBlock(x.b.id); } },
-      el('span', { class:'pdot', style:{ background: x.b.status === 'done' ? 'var(--ok)' : 'var(--bdr2)' } }),
-      el('span', { class:'sr-tx' }, el('span', { class:'sr-t', text: x.b.title || 'Untitled block' }),
-        el('span', { class:'sr-s', text: fmtDay(x.date) + ' · ' + fmtRange(x.b.start, x.b.end) + (x.b.status === 'done' ? ' · done' : '') })))))
-      : el('div', { class:'note', text:'Day blocks linked to this task show up here, so you can see when you worked on it.' })));
-  if(t.createdAt) body.append(el('div', { class:'note', text:'Added ' + fmtDay(localDay(new Date(t.createdAt))) + (t.doneAt && t.status === 'done' ? ' · finished ' + fmtDay(localDay(new Date(t.doneAt))) : '') }));
-  foot.append(el('span', { text: ro ? 'View only' : 'Changes save automatically' }),
-    ro ? null : el('button', { class:'btn ghost danger', text:'Delete task', async onclick(){
-      if(!await ask('Delete “' + (t.name || 'Untitled task') + '” from the timeline? Its files stay in Google Drive, and day blocks linked to it keep their history.', 'Delete')) return;
-      TASKS.delete(t.id); removeDoc('tasks/' + t.id); closeDrawer();
-    } }));
-}
-function attachmentsField(t, ro){
-  const wrap = el('div', { class:'field' }, el('span', { class:'flabel', text:'Files and links' + (t.files.length ? ' · ' + t.files.length : '') }));
-  const list = el('div', { class:'att-list' });
-  t.files.forEach(f => {
-    const ext = f.kind === 'link' ? '↗' : (String(f.name).split('.').pop() || 'file').slice(0, 4);
-    list.append(el(f.url ? 'a' : 'div', { class:'att', href: f.url || null, target: f.url ? '_blank' : null, rel: f.url ? 'noopener' : null, title: f.url || f.name },
-      el('span', { class:'att-ic', text: ext }),
-      el('span', { class:'att-tx' }, el('span', { class:'att-nm', text: f.name }),
-        el('span', { class:'att-sub', text: f.kind === 'link' ? linkLabel(f.url) : [f.size ? fmtSize(f.size) : '', f.addedAt ? fmtD(new Date(f.addedAt)) : '', 'Google Drive'].filter(Boolean).join(' · ') })),
-      ro ? null : el('button', { class:'icon-btn', title:'Remove', 'aria-label':'Remove ' + f.name, async onclick(e){
-        e.preventDefault(); e.stopPropagation();
-        if(!await ask('Remove “' + f.name + '” from this task?' + (f.kind === 'link' ? '' : ' The file stays in Google Drive.'), 'Remove')) return;
-        t.files = t.files.filter(x => x !== f); saveTask(t, 0); renderDrawer(); renderView();
-      } }, icon('close'))));
-  });
-  if(attBusy) list.append(el('div', { class:'att busy', text:'Uploading ' + plural(attBusy, 'file') + ' to Google Drive…' }));
-  if(!t.files.length && !attBusy) list.append(el('div', { class:'note', text: ro ? 'No files.' : 'Drawings, specs, photos, PDFs or links you want to keep with this task.' }));
-  wrap.append(list);
-  if(ro) return wrap;
-  const fin = el('input', { type:'file', multiple:true, hidden:true });
-  fin.addEventListener('change', () => { attachTo(t, [...fin.files]); fin.value = ''; });
-  const linkIn = el('input', { class:'sel-in', type:'url', placeholder:'Paste a link (Google Doc, Sheet, website…)', 'aria-label':'Link to add' });
-  const addLink = () => {
-    let v = linkIn.value.trim(); if(!v) return;
-    if(!/^https?:\/\//i.test(v)) v = 'https://' + v;
-    let u; try { u = new URL(v); } catch(e){ toast('That doesn’t look like a link.'); return; }
-    t.files.push({ id: uid(), kind:'link', url: v, name: /google\.com$/.test(u.hostname) ? linkLabel(v) : (u.hostname.replace(/^www\./, '') + (u.pathname.length > 1 ? u.pathname : '')).slice(0, 80), addedAt: nowISO() });
-    saveTask(t, 0); renderDrawer(); renderView();
-  };
-  linkIn.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); addLink(); } });
-  wrap.append(el('div', { class:'plan-row' }, el('button', { class:'btn', onclick(){ fin.click(); } }, icon('clip'), 'Add files'), fin),
-    el('div', { class:'link-row' }, linkIn, el('button', { class:'btn', text:'Add link', onclick: addLink })),
-    el('div', { class:'note', text: driveOn ? 'Files go into your Google Drive (Anium.planning › Attachments). You can also drop files onto this panel.' : 'Connect Google Drive to attach files. Links work without it.' }));
-  return wrap;
-}
-async function attachTo(t, files){
-  if(!files.length) return;
-  attBusy += files.length; if(ui.drawer === 'task') renderDrawer();
-  let items = [];
-  try { items = await addFiles(files); } catch(e){ items = []; }
-  attBusy -= files.length;
-  const cur = TASKS.get(t.id);
-  if(cur && items.length){ items.forEach(it => cur.files.push(Object.assign({ kind:'file' }, it))); saveTask(cur, 0); renderView(); }
-  if(ui.drawer === 'task') renderDrawer();
-}
-
-/* --- phase details --- */
-function phaseDrawer(ph, head, body, foot){
-  const ro = !canWrite;
-  head('Phase');
-  const name = el('input', { class:'bd-title', id:'ph-name', value: ph.name, placeholder:'Phase name', 'aria-label':'Phase name' });
-  name.readOnly = ro;
-  let rv = null;
-  name.addEventListener('input', () => { ph.name = name.value; saveProject(700); clearTimeout(rv); rv = setTimeout(renderView, 250); });
-  name.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); name.blur(); } });
-  body.append(name);
-  body.append(el('div', { class:'field' }, el('span', { class:'flabel', text:'Color' }),
-    el('div', { class:'swatches', role:'group', 'aria-label':'Phase color' }, COLORS.map(c => el('button', { class:'swatch' + (ph.color === c ? ' on' : ''), style:{ background: c }, 'aria-label':'Color ' + c, 'aria-pressed': String(ph.color === c), disabled: ro,
-      onclick(){ ph.color = c; saveProject(0); renderView(); renderDrawer(); } })))));
-  const tasks = [...TASKS.values()].filter(t => t.phaseId === ph.id);
-  body.append(el('div', { class:'note', text: tasks.length ? plural(tasks.length, 'task') + ', ' + tasks.filter(t => t.status === 'done').length + ' done.' : 'No tasks in this phase yet.' }));
-  foot.append(el('span', { text: ro ? 'View only' : 'Changes save automatically' }),
-    ro ? null : el('button', { class:'btn ghost danger', text:'Delete phase', async onclick(){
-      if(!await ask('Delete the phase “' + (ph.name || 'Untitled phase') + '”?' + (tasks.length ? ' Its ' + plural(tasks.length, 'task') + ' stay on the timeline under “No phase”.' : ''), 'Delete')) return;
-      PROJECT.phases = phases().filter(p => p !== ph); saveProject(0);
-      tasks.forEach(t => { t.phaseId = null; saveTask(t, 0); });
-      closeDrawer();
-    } }));
-}
-
-/* =====================================================================
-   SEARCH · tasks, day blocks, steps, notes and file names
-   ===================================================================== */
-const search = { q:'' };
-const terms = q => String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
-const hits = (text, ts) => { const s = String(text || '').toLowerCase(); return ts.every(x => s.includes(x)); };
-function mark(text, ts){
-  text = String(text || ''); if(!ts.length) return [text];
-  const re = new RegExp('(' + ts.map(x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'ig');
-  return text.split(re).map((part, i) => i % 2 ? el('mark', { text: part }) : part);
-}
-function snippet(text, ts){
-  if(!text || !ts.length || !hits(text, ts)) return null;
-  const s = String(text).replace(/\s+/g, ' '), i = Math.max(0, s.toLowerCase().indexOf(ts[0])), a = Math.max(0, i - 40);
-  return el('span', { class:'sr-n' }, a ? '…' : '', mark(s.slice(a, a + 140), ts), a + 140 < s.length ? '…' : '');
-}
-function openSearch(){ tidyBlock(); ui.drawer = 'search'; renderAll(); const i = $('#search-in'); if(i){ i.focus(); i.select(); } }
-function searchDrawer(head, body){
-  head('Search');
-  const inp = el('input', { class:'search-in', id:'search-in', type:'search', value: search.q, placeholder:'Tasks, day blocks, steps, notes, files…', 'aria-label':'Search everything' });
-  const res = el('div', { class:'search-res' });
-  inp.addEventListener('input', () => { search.q = inp.value; drawResults(res); });
-  inp.addEventListener('keydown', e => { if(e.key === 'Enter'){ const first = res.querySelector('.sr'); if(first) first.click(); } });
-  body.append(inp, res); drawResults(res);
-}
-const resGroup = (label, rows) => el('div', { class:'sr-group' }, el('span', { class:'flabel', text: label }), rows);
-function taskResult(t, ts){
-  const ph = phaseOf(t);
-  return el('button', { class:'sr', onclick(){ openTask(t.id, true); } },
-    el('span', { class:'pdot', style:{ background: taskColor(t) } }),
-    el('span', { class:'sr-tx' },
-      el('span', { class:'sr-t' + (t.status === 'done' ? ' done' : '') }, mark(t.name || 'Untitled task', ts)),
-      el('span', { class:'sr-s', text: [ph ? ph.name : 'No phase', taskSpan(t), STATUS[t.status]].join(' · ') + (t.files.length ? ' · ' + plural(t.files.length, 'file') : '') }),
-      snippet(t.note, ts)));
-}
-function blockResult(d, b, ts){
-  const step = ts.length ? b.steps.find(s => hits(s.text, ts)) : null;
-  const lt = taskById(b.taskId);
-  return el('button', { class:'sr', onclick(){ goDay(d.date); openBlock(b.id); } },
-    el('span', { class:'pdot', style:{ background: blockColor(b) } }),
-    el('span', { class:'sr-tx' },
-      el('span', { class:'sr-t' + (b.status === 'done' ? ' done' : '') }, mark(b.title || 'Untitled block', ts)),
-      el('span', { class:'sr-s', text: dayShort(d.date) + (sameYear(d.date) ? '' : ', ' + d.date.slice(0, 4)) + ' · ' + fmtRange(b.start, b.end) + (b.status === 'done' ? ' · done' : '') + (lt ? ' · ' + lt.name : '') }),
-      step ? el('span', { class:'sr-n' }, 'Step: ', mark(step.text, ts)) : snippet(b.note, ts) || snippet(d.focus, ts)));
-}
-function fileResult(t, f, ts){
-  return el('a', { class:'sr', href: f.url || null, target:'_blank', rel:'noopener', onclick(e){ if(!f.url){ e.preventDefault(); openTask(t.id, true); } } },
-    el('span', { class:'att-ic', style:{ width:'24px', height:'24px', fontSize:'9px' }, text: f.kind === 'link' ? '↗' : (String(f.name).split('.').pop() || 'file').slice(0, 4) }),
-    el('span', { class:'sr-tx' }, el('span', { class:'sr-t' }, mark(f.name, ts)), el('span', { class:'sr-s', text:'On “' + (t.name || 'Untitled task') + '”' + (f.kind === 'link' ? ' · ' + linkLabel(f.url) : '') })));
-}
-function drawResults(res){
-  res.textContent = '';
-  const ts = terms(search.q);
-  if(!ts.length){
-    const doing = [...TASKS.values()].filter(t => t.status === 'doing').sort((a, b) => a.start.localeCompare(b.start));
-    const td = getDay(today());
-    if(doing.length) res.append(resGroup('In progress', doing.slice(0, 12).map(t => taskResult(t, []))));
-    if(td && td.blocks.length) res.append(resGroup('Today', td.blocks.slice().sort((a, b) => a.start - b.start).map(b => blockResult(td, b, []))));
-    res.append(el('div', { class:'note', text:'Type to search every task, day block, step, note and file name. Press / or ⌘K anywhere to search.' }));
-    return;
-  }
-  const tasks = [...TASKS.values()].filter(t => hits(taskText(t), ts)).sort((a, b) => (a.status === 'done') - (b.status === 'done') || b.start.localeCompare(a.start));
-  const blocks = []; DAYS.forEach(d => d.blocks.forEach(b => { if(hits([b.title, b.note, b.steps.map(s => s.text).join(' '), d.focus].join(' '), ts)) blocks.push({ d, b }); }));
-  blocks.sort((x, y) => y.d.date.localeCompare(x.d.date) || x.b.start - y.b.start);
-  const files = []; TASKS.forEach(t => t.files.forEach(f => { if(hits(f.name + ' ' + (f.url || ''), ts)) files.push({ t, f }); }));
-  if(!tasks.length && !blocks.length && !files.length){ res.append(el('div', { class:'note', text:'Nothing matches “' + search.q.trim() + '”.' })); return; }
-  if(tasks.length) res.append(resGroup('Timeline tasks · ' + tasks.length, tasks.slice(0, 40).map(t => taskResult(t, ts))));
-  if(blocks.length) res.append(resGroup('Day blocks · ' + blocks.length, blocks.slice(0, 60).map(x => blockResult(x.d, x.b, ts))));
-  if(files.length) res.append(resGroup('Files · ' + files.length, files.slice(0, 40).map(x => fileResult(x.t, x.f, ts))));
-}
-
-/* =====================================================================
-   DRAWER
-   ===================================================================== */
-function renderDrawer(){
-  const dr = shell.drawer; dr.textContent = '';
-  dr.hidden = !ui.drawer;
-  if(!ui.drawer) return;
-  const head = title => dr.prepend(el('div', { class:'drawer-h' }, el('h3', { text: title }),
-    el('button', { class:'icon-btn', 'aria-label':'Close', title:'Close', onclick: closeDrawer }, icon('close'))));
-  const body = el('div', { class:'drawer-b' }), foot = el('div', { class:'drawer-f' });
-  if(ui.drawer === 'block'){
-    const d = getDay(ui.date), b = d && d.blocks.find(x => x.id === ui.block);
-    if(!b){ ui.drawer = null; dr.hidden = true; return; }
-    blockDrawer(d, b, head, body, foot);
-  } else if(ui.drawer === 'task'){
-    const t = taskById(ui.task);
-    if(!t){ ui.drawer = null; dr.hidden = true; return; }
-    taskDrawer(t, head, body, foot);
-  } else if(ui.drawer === 'phase'){
-    const ph = phases().find(p => p.id === ui.phase);
-    if(!ph){ ui.drawer = null; dr.hidden = true; return; }
-    phaseDrawer(ph, head, body, foot);
-  } else if(ui.drawer === 'search') searchDrawer(head, body);
-  else if(ui.drawer === 'plan') planDrawer(head, body);
-  dr.append(body);
-  if(foot.childNodes.length) dr.append(foot);
-}
-document.addEventListener('keydown', e => {
-  if(e.key === 'Escape'){ if(popEl){ closePop(); return; } if($('.scrim')) return; if(ui.drawer && !plan.busy){ closeDrawer(); } return; }
-  if((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')){ e.preventDefault(); openSearch(); return; }
-  const tag = (e.target && e.target.tagName) || '';
-  if(/INPUT|TEXTAREA|SELECT/.test(tag) || e.target.isContentEditable || e.metaKey || e.ctrlKey || e.altKey) return;
-  if(e.key === '/'){ e.preventDefault(); openSearch(); return; }
-  if(ui.tab !== 'day') return;
-  if(e.key === 'ArrowLeft'){ goDay(addDays(ui.date, -1)); }
-  else if(e.key === 'ArrowRight'){ goDay(addDays(ui.date, 1)); }
-  else if(e.key === 't' || e.key === 'T'){ goDay(today()); }
-});
-
-/* =====================================================================
-   PLAN MY DAY · say what you need to do; Claude lays out the hours
-   Uses the `sample` capability (runs on the viewer's own Claude account).
-   ===================================================================== */
-// Planning goes through this site's server (api/plan), which asks Claude for you once you've signed in with Google.
-async function askClaude(prompt, signal){
-  let r;
-  try { r = await fetch('/api/plan', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ prompt }), signal }); }
-  catch(e){ throw { code: e && e.name === 'AbortError' ? 'cancelled' : 'network' }; }
-  let j = null; try { j = await r.json(); } catch(e){}
-  if(!r.ok) throw { code: (j && j.error) || 'unavailable' };
-  if(!j || !j.plan || typeof j.plan !== 'object') throw { code:'invalid_json' };
-  return j.plan;
-}
-const plan = { text: LS.get('anium-planner:plan-draft') || '', busy:false, ctl:null, result:null, error:'', carry:true };
-function openPlan(){ tidyBlock(); ui.drawer = 'plan'; renderAll(); setTimeout(() => { const t = $('#plan-in'); if(t) t.focus(); }, 30); }
-function prevUnfinished(date){
-  const days = [...DAYS.values()].filter(d => d.date < date && d.blocks.length).sort((a, b) => b.date.localeCompare(a.date));
-  const d = days[0]; if(!d) return null;
-  const blocks = d.blocks.filter(b => b.status !== 'done' && !b.movedTo);
-  return blocks.length ? { day: d, blocks } : null;
-}
-function planContext(date){
-  const d = getDay(date) || blank(date);
-  const prev = date >= today() && plan.carry ? prevUnfinished(date) : null;
-  const carry = {};
-  const carryList = prev ? prev.blocks.map((b, i) => { const ref = 'y' + (i + 1); carry[ref] = { day: prev.day.date, b }; return { ref, title: b.title, was: toHM(b.start) + '–' + toHM(b.end), steps: b.steps.filter(s => !s.done).map(s => s.text) }; }) : [];
-  const tasks = [...TASKS.values()].filter(t => t.status !== 'done')
-    .sort((a, b) => (b.status === 'doing') - (a.status === 'doing') || Math.abs(daysBetween(date, a.start)) - Math.abs(daysBetween(date, b.start)))
-    .slice(0, 60).map(t => ({ taskId: t.id, task: t.name, phaseId: phaseOf(t) ? t.phaseId : null, start: t.start, end: t.end, status: t.status === 'doing' ? 'in progress' : 'to do' }));
-  return { date, d, prev, carry, carryList, tasks, phases: phases().map(p => ({ id: p.id, name: p.name })) };
-}
-function planPrompt(text, c){
-  const isToday = c.date === today(), isPast = c.date < today();
-  const startAt = isToday ? Math.ceil((nowMin() + 5) / 15) * 15 : 9 * 60;
-  const existing = c.d.blocks.map(b => Object.assign({ ref: b.id, title: b.title, start: toHM(b.start), end: toHM(b.end), status: b.status === 'done' ? 'done' : b.status === 'doing' ? 'in progress' : 'to do' },
-    b.taskId ? { task: b.taskId } : {}, b.steps.length ? { steps: b.steps.map(s => s.text) } : {}));
-  const lines = [
-    'You plan someone’s work day as an hour-by-hour Gantt chart of time blocks, and break big work into steps.',
-    '',
-    'Day: ' + dayTitle(c.date) + ' (' + c.date + ').' + (isToday ? ' This is today; it is now ' + fmtT(nowMin()) + '.' : isPast ? ' This day is in the past: they are recording what they did, so give blocks "status":"done".' : ' This is a future day.'),
-    '',
-    existing.length ? 'Already on this day (JSON). Blocks with status "done" are fixed — never return them:\n' + JSON.stringify(existing) : 'Nothing is on this day yet.',
-  ];
-  if(c.carryList.length) lines.push('', 'Not finished on ' + dayTitle(c.prev.day.date) + ' (fit these in where it makes sense, using the ref shown; leave out any they say are dropped):', JSON.stringify(c.carryList));
-  lines.push('', 'Their timeline of longer-running work (tasks with real dates).', 'Phases: ' + JSON.stringify(c.phases), 'Open tasks: ' + JSON.stringify(c.tasks));
-  lines.push('', 'What they told you, in their words:', '"""' + text.slice(0, 5000) + '"""', '',
-    'How to plan:',
-    '- Make a block for each thing they need to do. Use 24-hour "HH:MM" times on 15-minute steps. Blocks must not overlap each other or the fixed blocks.',
-    '- Keep any times they mention (meetings, "after lunch", "leave at 5"). Otherwise start at ' + toHM(Math.max(startAt, 0)) + (isToday ? ' (now) unless something already happened earlier' : '') + ', and keep the day to about 8 hours with a lunch break around 12:00 when the day runs through midday, unless they say otherwise.',
-    '- Size blocks realistically (15 minutes to 3 hours). Put focused, hard work earlier and group small admin tasks together.',
-    '- For a large or complicated block (90 minutes or more, or several distinct parts), add 3–6 short, concrete "steps" with minute estimates that add up to about the block’s length. Simple blocks get no steps.',
-    '- Keep titles short (under 50 characters) and in their words. Put specifics they mention (people, numbers, parts, links) in "note".',
-    '- Include every unfinished block already on this day, using its "ref" (you may move it). Put a ref in "remove" only if they say it is no longer happening.',
-    '- If they say something is already done, include it with "status":"done".',
-    '- Work they say will take several days, weeks or months belongs on the timeline: add it to "longTasks" with start and end dates and a "phase" (an existing phase id, or a short new phase name). Then schedule this day’s part of it as a block whose "task" is that long task’s ref (like "L1"). If it is an existing timeline task, use its taskId as the block’s "task" instead, and add a "taskUpdates" entry only if its dates must change.',
-    '- When a block is work on an existing timeline task, set its "task" to that taskId.',
-    '',
-    'Reply with only JSON in this shape:',
-    '{"focus":"one sentence: the day’s main goal",',
-    ' "blocks":[{"ref":"existing or carried ref; omit for new","title":"...","start":"HH:MM","end":"HH:MM","status":"todo|done","task":"taskId or L1; omit if none","note":"optional","steps":[{"text":"...","mins":20}]}],',
-    ' "remove":["ref"],',
-    ' "longTasks":[{"ref":"L1","name":"...","start":"YYYY-MM-DD","end":"YYYY-MM-DD","phase":"phase id or new phase name"}],',
-    ' "taskUpdates":[{"taskId":"t3","start":"YYYY-MM-DD","end":"YYYY-MM-DD"}]}');
-  return lines.join('\n');
-}
-// Turns Claude's answer into rows the person reviews. Anything malformed is dropped.
-function readPlan(out, c){
-  const rows = [], seen = new Set();
-  const byRef = new Map(c.d.blocks.map(b => [b.id, b]));
-  const longs = {};
-  const okDay = x => isDay(x) && Math.abs(daysBetween(c.date, x)) <= 1000;
-  (Array.isArray(out.longTasks) ? out.longTasks.slice(0, 10) : []).forEach((x, i) => {
-    if(!x || typeof x !== 'object') return;
-    const name = String(x.name || '').trim().slice(0, 80); if(!name) return;
-    const ref = String(x.ref || 'L' + (i + 1));
-    const s = okDay(x.start) ? x.start : c.date;
-    let e = okDay(x.end) ? x.end : s; if(e < s) e = s;
-    const phase = String(x.phase || '').trim();
-    const ph = c.phases.find(p => p.id === phase || p.name.toLowerCase() === phase.toLowerCase());
-    longs[ref] = true;
-    rows.push({ kind:'long', ref, name, s, e, phaseId: ph ? ph.id : null, phaseName: ph ? ph.name : (phase.slice(0, 40) || 'Ongoing work'), on:true,
-      label:'Timeline', text: name, sub: fmtDay(s) + (e > s ? ' – ' + fmtDay(e) : '') + ' · ' + (ph ? ph.name : 'new phase “' + (phase.slice(0, 40) || 'Ongoing work') + '”') });
-  });
-  (Array.isArray(out.taskUpdates) ? out.taskUpdates.slice(0, 10) : []).forEach(x => {
-    const t = x && taskById(String(x.taskId || '')); if(!t) return;
-    const s = okDay(x.start) ? x.start : t.start;
-    let e = okDay(x.end) ? x.end : t.end; if(e < s) e = s;
-    if(s === t.start && e === t.end) return;
-    rows.push({ kind:'extend', taskId: t.id, s, e, on:true, label:'Timeline', text: t.name || 'Untitled task', sub:'New dates ' + fmtDay(s) + (e > s ? ' – ' + fmtDay(e) : '') });
-  });
-  const blockRows = [];
-  (Array.isArray(out.blocks) ? out.blocks.slice(0, 40) : []).forEach(x => {
-    if(!x || typeof x !== 'object') return;
-    let s = fromHM(x.start), e = fromHM(x.end);
-    if(s == null) return;
-    s = Math.round(s / 5) * 5;
-    if(e == null || e <= s) e = s + 30;
-    e = Math.min(1440, Math.round(e / 5) * 5); if(e <= s) e = Math.min(1440, s + 15);
-    if(s >= 1440) return;
-    const ref = typeof x.ref === 'string' ? x.ref : null;
-    const ex = ref && byRef.get(ref), carry = ref && c.carry[ref];
-    if(ex && (ex.status === 'done' || seen.has(ref))) return;
-    if(carry && seen.has(ref)) return;
-    if(ref) seen.add(ref);
-    const title = String(x.title || '').trim().slice(0, 80);
-    if(!title && !ex && !carry) return;
-    const tk = String(x.task || x.taskId || '');
-    const long = longs[tk] ? tk : null, taskId = !long && taskById(tk) ? tk : null;
-    const steps = Array.isArray(x.steps) ? x.steps.slice(0, 8).map(st => ({ text: String(typeof st === 'string' ? st : (st && st.text) || '').trim().slice(0, 120), mins: clamp(Math.round(+((st && st.mins) || 0)), 0, 480) || null })).filter(st => st.text) : [];
-    const note = typeof x.note === 'string' ? x.note.trim().slice(0, 600) : '';
-    const done = x.status === 'done';
-    let kind = ex ? 'same' : carry ? 'carry' : 'new';
-    if(ex && (ex.start !== s || ex.end !== e || (title && title !== ex.title) || (taskId && taskId !== ex.taskId) || long || done || (steps.length && !ex.steps.length) || note)) kind = 'move';
-    const finalTitle = title || (ex ? ex.title : carry.b.title);
-    const linkName = long ? (rows.find(r => r.kind === 'long' && r.ref === long) || {}).name : taskId ? taskById(taskId).name || 'Untitled task' : '';
-    blockRows.push({ kind, ref, ex, carry, s, e, title: finalTitle, taskId, long, steps: ex && ex.steps.length ? [] : steps.length ? steps : carry ? carry.b.steps.filter(st => !st.done).map(st => ({ text: st.text, mins: st.mins })) : [], note, done, on: true,
-      label: kind === 'same' ? 'Already planned' : kind === 'move' ? (ex.start !== s || ex.end !== e ? 'Moved' : 'Updated') : kind === 'carry' ? 'From ' + dayShort(carry.day) : done ? 'Done' : 'New',
-      text: finalTitle, time: fmtRange(s, e),
-      sub: [linkName ? 'Timeline: ' + linkName : '', steps.length && !(ex && ex.steps.length) ? plural(steps.length, 'step') + ': ' + steps.map(st => st.text).join(' · ') : '', note].filter(Boolean).join(' — ') });
-  });
-  blockRows.sort((a, b) => a.s - b.s);
-  const removes = (Array.isArray(out.remove) ? out.remove : []).map(String).filter(r => byRef.has(r) && byRef.get(r).status !== 'done' && !seen.has(r))
-    .map(r => ({ kind:'remove', ref: r, on:true, label:'Remove', text: byRef.get(r).title || 'Untitled block', time: fmtRange(byRef.get(r).start, byRef.get(r).end) }));
-  return { focus: typeof out.focus === 'string' ? out.focus.trim().slice(0, 300) : '', rows: blockRows.concat(rows, removes), c };
-}
-function planErrorText(e){
-  const c = e && e.code;
-  if(c === 'cancelled') return '';
-  if(c === 'signed_out'){ syncError({ code:'auth' }); return 'Your Google sign-in expired. Reconnect Google Drive (top right), then try again.'; }
-  if(c === 'not_configured') return 'Planning with Claude isn’t set up on this site yet.';
-  if(c === 'rate_limited') return 'You’ve planned a lot in the last hour. Wait a little, then try again.';
-  if(c === 'too_large') return 'That’s too much to send at once. Shorten what you wrote.';
-  if(c === 'invalid_json') return 'Claude’s answer couldn’t be read. Try again.';
-  if(c === 'network') return 'Couldn’t reach the site. Check your connection and try again.';
-  return 'Couldn’t reach Claude just now. Try again in a moment.';
-}
-async function runPlan(){
-  const text = plan.text.trim();
-  if(!text){ toast('Write what you need to do first.'); return; }
-  if(plan.busy) return;
-  if(!driveOn){ plan.error = syncState === 'reconnect' ? 'Reconnect Google Drive first (top right), then try again.' : 'Connect Google Drive first (top right). Signing in with Google is how Anium knows it’s you before it asks Claude.'; renderDrawer(); return; }
-  const c = planContext(ui.date);
-  plan.busy = true; plan.error = ''; plan.result = null; plan.ctl = new AbortController(); renderDrawer();
-  try {
-    const out = await askClaude(planPrompt(text, c), plan.ctl.signal);
-    plan.result = readPlan(out && typeof out === 'object' ? out : {}, c);
-    if(!plan.result.rows.some(r => r.kind !== 'same')) { plan.error = 'Claude didn’t find anything new to schedule. Add a little more about what you need to do.'; }
-  } catch(e){ plan.error = planErrorText(e); }
-  finally { plan.busy = false; plan.ctl = null; renderDrawer(); }
-}
-function applyPlan(){
-  const r = plan.result; if(!r) return;
-  const c = r.c, chosen = r.rows.filter(x => x.on && x.kind !== 'same');
-  if(!chosen.length && !r.focus){ toast('Tick at least one change.'); return; }
-  const now = nowISO(), longIds = {};
-  const proj = chosen.filter(x => x.kind === 'long' || x.kind === 'extend');
-  proj.forEach(x => {
-    if(x.kind === 'extend'){ const t = taskById(x.taskId); if(t){ t.start = x.s; t.end = t.milestone ? x.s : x.e; saveTask(t, 0); } return; }
-    const ph = (x.phaseId && phases().find(p => p.id === x.phaseId)) || phases().find(p => (p.name || '').toLowerCase() === x.phaseName.toLowerCase()) || addPhase(x.phaseName);
-    const t = createTask({ name: x.name, phaseId: ph.id, start: x.s, end: x.e, status: x.s <= c.date ? 'doing' : 'todo' });
-    longIds[x.ref] = t.id;
-  });
-  const d = ensureDay(c.date);
-  chosen.forEach(x => {
-    if(x.kind === 'remove'){ d.blocks = d.blocks.filter(b => b.id !== x.ref); return; }
-    if(x.kind === 'long' || x.kind === 'extend') return;
-    const taskId = x.long ? (longIds[x.long] || null) : x.taskId;
-    if(x.ex){
-      const b = d.blocks.find(y => y.id === x.ref); if(!b) return;
-      b.start = x.s; b.end = x.e; if(x.title) b.title = x.title; if(taskId) b.taskId = taskId;
-      if(x.steps.length && !b.steps.length) b.steps = x.steps.map(normStep);
-      if(x.note && !(b.note || '').includes(x.note)) b.note = (b.note ? b.note + '\n' : '') + x.note;
-      if(x.done){ b.status = 'done'; b.doneAt = now; }
-      return;
-    }
-    d.blocks.push(normBlock(Object.assign({ id: uid(), title: x.title, start: x.s, end: x.e, status: x.done ? 'done' : 'todo', taskId: taskId || null, note: x.note || '', steps: x.steps },
-      x.done ? { doneAt: now } : {}, x.carry ? { from: x.carry.day } : {})));
-    if(x.carry){ const pd = getDay(x.carry.day), ob = pd && pd.blocks.find(b => b.id === x.carry.b.id); if(ob){ ob.movedTo = c.date; saveDay(pd, 0); } }
-  });
-  if(r.focus) d.focus = r.focus;
-  d.prompt = plan.text.trim(); d.plannedAt = now;
-  sortBlocks(d); saveDay(d, 0);
-  plan.result = null; plan.text = ''; LS.del('anium-planner:plan-draft');
-  ui.drawer = null; ui.tab = 'day'; ui.date = c.date; scrolledFor = null; stashUI();
-  renderAll();
-  toast(proj.length ? 'Your day is laid out, and your timeline is updated.' : 'Your day is laid out. Everything’s saved.', 4000);
-}
-function planDrawer(head, body){
-  const date = ui.date, isPast = date < today(), isToday = date === today();
-  head(isPast ? 'Log ' + dayShort(date) : isToday ? 'Plan my day' : 'Plan ' + dayShort(date));
-  body.append(el('div', { class:'plan-date', text: dayTitle(date) + (isToday ? ' · it’s ' + fmtT(nowMin()) : '') }));
-  const ta = el('textarea', { class:'ta plan-in', id:'plan-in', 'aria-label':'What you need to do',
-    placeholder: isPast ? 'What did you work on that day? Claude logs it as finished blocks.'
-      : 'List what you need to do, in any order. Mention meetings, deadlines and anything that will take several days. For example: “Standup at 9:30. Finish the bracket CAD, order bearings, write the test report (that’ll take all week). Leave at 5.”' });
-  ta.value = plan.text; ta.readOnly = plan.busy;
-  ta.addEventListener('input', () => { plan.text = ta.value; LS.set('anium-planner:plan-draft', ta.value); });
-  ta.addEventListener('keydown', e => { if((e.metaKey || e.ctrlKey) && e.key === 'Enter'){ e.preventDefault(); runPlan(); } });
-  body.append(ta);
-  const prev = !isPast ? prevUnfinished(date) : null;
-  if(prev){
-    const cb = el('input', { type:'checkbox', id:'plan-carry' }); cb.checked = plan.carry; cb.disabled = plan.busy;
-    cb.addEventListener('change', () => { plan.carry = cb.checked; });
-    body.append(el('label', { class:'plan-opt', for:'plan-carry' }, cb, el('span', null, 'Fit in what wasn’t finished on ' + dayShort(prev.day.date),
-      el('small', { text: prev.blocks.map(b => b.title || 'Untitled block').join(' · ') }))));
-  }
-  body.append(el('div', { class:'plan-row' },
-    plan.busy ? el('button', { class:'btn', onclick(){ if(plan.ctl) plan.ctl.abort(); } }, 'Stop')
-      : el('button', { class:'btn primary', onclick: runPlan }, icon('spark'), plan.result ? 'Plan again' : 'Plan it with Claude'),
-    el('span', { class:'plan-hint', text: plan.busy ? 'Claude is laying out your day…' : '⌘/Ctrl + Enter' })));
-  if(plan.error) body.append(el('div', { class:'msg warn', text: plan.error }));
-  const r = plan.result;
-  if(r){
-    if(r.c.date !== date) body.append(el('div', { class:'msg warn', text:'This plan is for ' + dayShort(r.c.date) + '. Applying it puts it on that day.' }));
-    if(r.focus) body.append(el('div', { class:'field' }, el('span', { class:'flabel', text:'Focus' }), el('p', { class:'plan-focus', text: r.focus })));
-    body.append(el('span', { class:'flabel', text:'Proposed plan · untick anything you don’t want' }));
-    const list = el('div', { class:'plan-list' });
-    r.rows.forEach((x, i) => {
-      const fixed = x.kind === 'same';
-      const cb = el('input', { type:'checkbox', id:'pi-' + i, 'aria-label':'Include ' + x.text }); cb.checked = x.on; cb.disabled = fixed;
-      cb.addEventListener('change', () => {
-        x.on = cb.checked;
-        if(x.kind === 'long') r.rows.forEach(y => { if(y.long === x.ref && !x.on){ y.long = null; y.sub = y.sub.replace(/^Timeline: [^—]*(— )?/, ''); } });
-        renderDrawer();
+const shareURL = p => location.origin + location.pathname + '?p=' + encodeURIComponent(p.drive.fileId);
+function openShare(p){
+  const body = el('div', { class:'share' });
+  const m = modal('Share “' + (p.name || 'Untitled project') + '”', body);
+  async function draw(){
+    body.textContent = '';
+    const linkSec = el('section', { class:'share-sec' });
+    linkSec.append(el('h4', { text:'View-only link' }));
+    if(!HAS_GOOGLE){
+      linkSec.append(el('p', { class:'muted', text:'Share links need Google Drive. Finish the steps in SETUP.md (about 15 minutes), then come back here.' }));
+    } else if(!driveOn){
+      linkSec.append(el('p', { class:'muted', text:'Connect Google Drive to get a link. Only this project is shared, never your others.' }),
+        el('button', { class:'btn primary', async onclick(){ m.close(); await connectDrive(); if(driveOn) openShare(p); } }, icon('drive'), 'Connect Google Drive'));
+    } else {
+      if(!p.drive || !p.drive.fileId || p._dirty){ linkSec.append(el('p', { class:'muted', text:'Saving to Drive…' })); body.append(linkSec); await flush(); if(p.drive && p.drive.fileId) return draw(); linkSec.lastChild.textContent = 'Couldn’t save to Drive yet. Check your connection and try again.'; return; }
+      const on = !!p.drive.shared;
+      const sw = el('button', { class:'switch' + (on ? ' on' : ''), role:'switch', 'aria-checked':String(on), 'aria-label':'Anyone with the link can view' }, el('i'));
+      sw.addEventListener('click', async () => {
+        sw.disabled = true;
+        try { await Drive.setShared(p, !on); markChanged(p); await flush(); renderSidebar(); draw(); }
+        catch(e){ sw.disabled = false; toast(e && e.code === 'auth' ? 'Drive sign-in expired. Reconnect and try again.' : 'Couldn’t change sharing. Try again.', 4500); if(e && e.code === 'auth') driveError(e); }
       });
-      list.append(el(fixed ? 'div' : 'label', { class:'plan-item' + (x.on ? '' : ' off') + (fixed ? ' fixed' : ''), for: fixed ? null : 'pi-' + i },
-        fixed ? el('span') : cb,
-        el('span', { class:'pi-tx' },
-          el('span', { class:'pi-top' }, x.time ? el('span', { class:'pi-time', text: x.time }) : null, el('span', { class:'pi-kind k-' + x.kind, text: x.label })),
-          el('span', { text: x.text }),
-          x.sub ? el('span', { class:'pi-sub', text: x.sub }) : null)));
-    });
-    body.append(list);
-    const n = r.rows.filter(x => x.on && x.kind !== 'same').length;
-    body.append(el('div', { class:'plan-row' },
-      el('button', { class:'btn primary', disabled: !n && !r.focus, onclick: applyPlan }, n ? (n === 1 ? 'Apply 1 change' : 'Apply ' + n + ' changes') : 'Apply'),
-      el('button', { class:'btn ghost', onclick(){ plan.result = null; renderDrawer(); } }, 'Discard')));
-  } else if(!plan.busy && !plan.error){
-    body.append(el('div', { class:'note', text:'Claude turns your list into time blocks on today’s chart, splits big tasks into steps you can edit, and puts work that spans several days on your Timeline. You review everything before it’s applied.' }));
+      linkSec.append(el('div', { class:'share-row' }, el('div', null, el('strong', { text:'Anyone with the link can view' }), el('div', { class:'muted', text: on ? 'No Google account needed. They can look and download a copy, but can’t edit.' : 'Off: only you can open this project.' })), sw));
+      if(on){
+        const inp = el('input', { class:'link-in', value: shareURL(p), readonly:'', 'aria-label':'Share link', onfocus(e){ e.target.select(); } });
+        linkSec.append(el('div', { class:'link-row' }, inp, el('button', { class:'btn primary', async onclick(e){
+          try { await navigator.clipboard.writeText(inp.value); e.currentTarget.textContent = 'Copied'; } catch(err){ inp.select(); document.execCommand('copy'); e.currentTarget.textContent = 'Copied'; }
+        } }, 'Copy link')));
+        linkSec.append(el('p', { class:'muted small', text:'Viewers always see your latest saved changes. Your other projects stay private.' }));
+      }
+    }
+    body.append(linkSec);
+    body.append(el('section', { class:'share-sec' }, el('h4', { text:'Download a copy' }),
+      el('p', { class:'muted', text:'One file with this project and its pictures. Opens in any browser on Mac or Windows, even offline. It’s a snapshot: later changes won’t appear in it.' }),
+      el('button', { class:'btn', onclick(){ downloadProject(p); } }, icon('down'), 'Download')));
   }
+  draw();
+}
+async function downloadProject(p){
+  toast('Preparing download…', 10000);
+  const q = serializeProject(p); delete q.drive;
+  for(const im of Object.values(q.images)){
+    if(im.src) continue;
+    const live = p.images[im.id];
+    try {
+      if(live && live.src) im.src = live.src;
+      else if(im.driveId && ROLE === 'owner' && driveOn) im.src = await Drive.readImage(im.driveId);
+      else if(im.driveId && HAS_KEY){ const r = await fetch(publicMediaURL(im.driveId)); if(r.ok) im.src = await blobToDataURL(await r.blob()); }
+      else if(im.url){ const r = await fetch(im.url, { mode:'cors' }); if(r.ok) im.src = await blobToDataURL(await r.blob()); }
+    } catch(e){}
+    delete im.driveId;
+  }
+  saveFile(slug(p.name) + '.html', buildOfflineDoc(q));
+  toast('Downloaded “' + slug(p.name) + '.html”');
+}
+async function importFile(file){
+  const text = await file.text();
+  let added = [];
+  try {
+    let m = text.match(/<script type="application\/json" id="app-state">([\s\S]*?)<\/script>/);
+    if(m){
+      const st = JSON.parse(m[1]);
+      added = (st.projects || []).map(p0 => {
+        const p = clone(p0); p.images = {}; delete p.drive;
+        if(W.projects.some(x => x.id === p.id)) p.id = uid();
+        const refs = new Set();
+        TAB_IDS.forEach(k => MODULES[k].imageRefs(p.mods[k] && p.mods[k].data).forEach(r => refs.add(r)));
+        (p.history || []).forEach(h => MODULES[h.mod].imageRefs(h.snap).forEach(r => refs.add(r)));
+        refs.forEach(id => { const im = st.images && st.images[id]; if(im) p.images[id] = { id, src: im.data, w: im.w, h: im.h, addedAt: im.addedAt, caption: im.caption || '', events: im.events || [] }; });
+        return p;
+      });
+    } else if((m = text.match(/<script type="application\/json" id="dw-embedded">([\s\S]*?)<\/script>/))){
+      const p = JSON.parse(m[1]).project; delete p.drive;
+      if(W.projects.some(x => x.id === p.id)){ p.id = uid(); p.name = (p.name || 'Untitled project') + ' (imported)'; }
+      added = [p];
+    }
+  } catch(e){ added = []; }
+  if(!added.length){ toast('That file isn’t an Anium.planning file.', 4000); return; }
+  added.forEach(p => { prepareProject(p); W.projects.push(p); p._dirty = true; });
+  W.projects = W.projects.filter(p => !(p.pristine && !p.drive && W.projects.length > 1));
+  W._indexDirty = true; markChanged(null);
+  toast('Imported ' + plural(added.length, 'project'));
+  openProject(added[0].id); renderAll(true);
 }
 
 /* =====================================================================
-   GOOGLE · attachments, status report and status slides in your Google Drive
-   Files go into “Anium.planning/Attachments”; the report and slides into “Anium.planning”.
+   SHELL · drawers (history, picture info) and picture picker
    ===================================================================== */
-const PPTX_TYPE = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
-const MAX_ATTACH = 200 * 1024 * 1024;
-let googleBusy = false;
-const projName = () => (PROJECT && PROJECT.name) || 'My project';
-const driveRec = () => (PROJECT && PROJECT.drive) || {};
-function setDrive(patch){ PROJECT = PROJECT || newProject(); PROJECT.drive = Object.assign({}, driveRec(), patch); saveProject(0); }
-const folderURL = () => Drive.rootId ? 'https://drive.google.com/drive/folders/' + Drive.rootId : null;
-function needDrive(what){
-  if(driveOn) return false;
-  toast(syncState === 'reconnect' ? 'Reconnect Google Drive (top right) to ' + what + '.' : 'Connect Google Drive (top right) to ' + what + '.', 6000);
-  return true;
-}
-function driveFail(e, what){
-  toast(e && e.code === 'auth' ? 'Your Google sign-in expired. Reconnect Google Drive and try again.'
-    : e && e.code === 'network' ? 'Couldn’t reach Google Drive to save ' + what + '. Check your connection and try again.'
-    : 'Google Drive couldn’t save ' + what + '. Try again in a moment.', 7000);
-  if(e && e.code === 'auth') syncError(e);
-}
-async function addFiles(files){
-  const items = [], skipped = [];
-  if(needDrive('attach files')) return items;
-  for(const file of files){
-    if(!(file instanceof Blob)) continue;
-    const name = file.name || 'file';
-    if(file.size > MAX_ATTACH){ skipped.push(name); continue; }
-    try {
-      const parent = await Drive.ensureFilesFolder();
-      const r = await Drive.uploadLarge({ name, parents:[parent] }, file);
-      items.push({ id: uid(), driveId: r.id, name, type: file.type || '', size: file.size, addedAt: nowISO(), url:'https://drive.google.com/file/d/' + r.id + '/view' });
-    } catch(e){ driveFail(e, '“' + name + '”'); return items; }
+function toggleDrawer(k){ ui.drawer = ui.drawer === k ? null : k; renderHeader(); renderDrawer(); }
+function renderDrawer(){
+  const d = shell.drawer; d.textContent = '';
+  d.hidden = !ui.drawer;
+  if(!ui.drawer) return;
+  const p = proj();
+  const head = title => el('div', { class:'drawer-h' }, el('h3', { text:title }), el('button', { class:'icon-btn', 'aria-label':'Close', onclick(){ toggleDrawer(ui.drawer); } }, icon('close')));
+  const body = el('div', { class:'drawer-b' });
+  if(ui.drawer === 'history'){
+    d.append(head(MODULES[ui.tab].label + ' history'));
+    body.append(el('div', { class:'drawer-note', text: canEdit() ? 'Changes save automatically. Edits within 10 minutes of each other are grouped into one version.' : 'Versions the owner has saved.' }));
+    const items = (p.history || []).filter(x => x.mod === ui.tab).slice().reverse();
+    if(!items.length) body.append(el('div', { class:'drawer-note', text:'No versions yet.' }));
+    let lastDay = '';
+    items.forEach((v, i) => {
+      const day = fmtDate(v.t, false);
+      if(day !== lastDay){ body.append(el('div', { class:'ver-day', text: day })); lastDay = day; }
+      body.append(el('div', { class:'ver' + (i === 0 ? ' cur' : '') },
+        el('div', { class:'vt' }, el('span', { text: fmtClock(new Date(v.t)) + (i === 0 ? ' · current' : '') }),
+          canEdit() && i > 0 ? el('button', { class:'vr', text:'Restore', onclick(){ restoreVersion(p, v); } }) : null),
+        el('div', { class:'vs', text: v.summary })));
+    });
+  } else if(ui.drawer === 'info'){
+    d.append(head('Picture info'));
+    const id = ui.selImg, im = id && p.images[id];
+    if(!im){
+      body.append(el('div', { class:'empty', style:{ height:'auto', padding:'40px 16px' } }, el('strong', { text:'No picture selected' }), el('span', { text:'Click a picture on the mood board to see when it was added, its caption, and where it’s used.' })));
+    } else {
+      body.append(el('div', { class:'info-img' }, el('img', { src: imgURL(p, id), alt: im.caption || 'Selected picture' })));
+      const uses = ((p.mods.scope.data && p.mods.scope.data.options) || []).filter(o => o.img === id).map(o => o.title || 'Untitled option');
+      body.append(el('dl', { class:'kv' },
+        el('dt', { text:'Added' }), el('dd', { text: fmtDate(im.addedAt) }),
+        im.url ? el('dt', { text:'Source' }) : null, im.url ? el('dd', null, el('a', { href: im.url, target:'_blank', rel:'noopener noreferrer', text: host(im.url) }), im.src ? '' : el('div', { class:'muted small', text:'Still saving a copy from the original site. The app keeps retrying each time it opens. If this stays, save the picture to your computer and drag the file onto the mood board.' })) : null,
+        im.w ? el('dt', { text:'Size' }) : null, im.w ? el('dd', { text: im.w + ' × ' + im.h + ' px' }) : null,
+        el('dt', { text:'Used in' }), el('dd', { text: uses.length ? uses.join(', ') : 'Not picked for an option yet' })));
+      body.append(el('div', { class:'field-label', text:'Caption' }));
+      const cap = el('textarea', { class:'ta', placeholder: canEdit() ? 'Where it’s from, what you like about it…' : '', 'aria-label':'Caption' });
+      cap.value = im.caption || ''; cap.readOnly = !canEdit();
+      cap.addEventListener('input', () => { im.caption = cap.value; markChanged(p); });
+      body.append(el('div', { style:{ padding:'0 10px 14px' } }, cap));
+      body.append(el('div', { class:'field-label', text:'Activity' }));
+      const evs = (im.events || []).slice().reverse();
+      body.append(el('ul', { class:'events' }, evs.length ? evs.map(e => el('li', null, el('span', { text:e.text }), el('span', { text: fmtDate(e.t) }))) : el('li', null, el('span', { text:'Activity shows up a moment after changes are saved.' }), el('span'))));
+    }
   }
-  const saved = items.length ? (items.length === 1 ? 'Saved to' : items.length + ' files saved to') + ' your Google Drive (Anium.planning › Attachments). ' : '';
-  const tooBig = skipped.length ? (skipped.length === 1 ? '“' + skipped[0] + '” is' : skipped.length + ' files are') + ' over 200 MB. Put ' + (skipped.length === 1 ? 'it' : 'them') + ' in Google Drive yourself and attach the link.' : '';
-  if(saved || tooBig) toast((saved + tooBig).trim(), tooBig ? 8000 : 4000);
-  return items;
+  d.append(body);
+}
+async function restoreVersion(p, v){
+  if(!await askConfirm('Restore ' + MODULES[v.mod].label.toLowerCase() + ' to the version from ' + fmtDate(v.t) + '? The current version stays in history.', 'Restore')) return;
+  restoreNotes[p.id + ':' + v.mod] = 'Restored the version from ' + fmtDate(v.t);
+  setModData(p.id, v.mod, clone(v.snap));
+  destroyFrames(f => f.pid === p.id && f.mod === v.mod);
+  if(ui.tab === v.mod) mountTab();
+  await flush(); renderDrawer();
+  toast('Version restored');
+}
+function addToBoard(p, id){
+  const im = p.images[id];
+  let d = clone(p.mods.moodboard.data);
+  if(!d) d = { cards:[], pan:{ x:0, y:0 }, zoom:1, zCounter:10, worldW:4000, worldH:4000 };
+  d.cards = d.cards || [];
+  const bottom = d.cards.reduce((m, c) => Math.max(m, (c.y || 0) + (c.h || 0)), 40);
+  const h = im && im.w ? Math.round(240 * im.h / im.w) : 200;
+  const n = d.cards.filter(c => c.type === 'image').length;
+  d.zCounter = (d.zCounter || 10) + 1;
+  d.cards.push({ type:'image', x: 60 + (n % 4) * 270, y: bottom + 40, w:240, h, z: d.zCounter, ci:0, src:'img:' + id });
+  setModData(p.id, 'moodboard', d);
+  destroyFrames(f => f.pid === p.id && f.mod === 'moodboard');
+}
+function openImagePicker(p, cb){
+  const ids = MoodboardModule.imageRefs(p.mods.moodboard.data).concat(ScopeModule.imageRefs(p.mods.scope.data)).filter((v, i, a) => a.indexOf(v) === i && p.images[v]);
+  let mdl = null;
+  const choose = id => { mdl.close(); cb(id); };
+  const fileIn = el('input', { type:'file', accept:'image/*', style:{ display:'none' } });
+  fileIn.addEventListener('change', () => {
+    const f = fileIn.files && fileIn.files[0]; if(!f || !/^image\//.test(f.type)) return;
+    const r = new FileReader();
+    r.onload = async () => { const id = await addDataImage(p, r.result); addToBoard(p, id); choose(id); toast('Picture added to this option and to your mood board'); };
+    r.readAsDataURL(f);
+  });
+  const urlIn = el('input', { class:'link-in', placeholder:'Paste a picture address, or a copied picture', 'aria-label':'Picture address' });
+  const err = el('div', { class:'err', hidden:true });
+  const addUrl = async () => {
+    const v = urlIn.value.trim(); if(!/^https?:\/\//i.test(v)){ err.hidden = false; err.textContent = 'Paste an address that starts with http:// or https://'; return; }
+    err.hidden = true; toast('Getting the picture…', 8000);
+    let raw;
+    try { raw = await downloadPicture(v); } catch(e){ err.hidden = false; err.textContent = 'You seem to be offline. Try again once you’re connected.'; return; }
+    if(!raw){ err.hidden = false; err.textContent = 'Couldn’t get a picture from that address. Copy the picture itself (right-click → Copy image) and paste it here, or save it and upload the file.'; return; }
+    const id = await addDataImage(p, raw, v); addToBoard(p, id); choose(id); toast('Picture added to this option and to your mood board');
+  };
+  urlIn.addEventListener('keydown', e => { if(e.key === 'Enter') addUrl(); });
+  urlIn.addEventListener('paste', async e => {
+    const f = Array.from((e.clipboardData && e.clipboardData.files) || []).find(x => /^image\//.test(x.type));
+    if(!f) return; e.preventDefault();
+    const id = await addDataImage(p, await blobToDataURL(f)); addToBoard(p, id); choose(id); toast('Picture added to this option and to your mood board');
+  });
+  const body = el('div', null,
+    el('div', { class:'add-row' }, urlIn, el('button', { class:'btn', text:'Add', onclick: addUrl }), el('button', { class:'btn primary', onclick(){ fileIn.click(); } }, icon('up'), 'Upload'), fileIn),
+    err,
+    ids.length ? el('div', { class:'pick-grid' }, ids.map(id => el('button', { onclick(){ choose(id); } },
+      el('img', { src: imgURL(p, id), alt: p.images[id].caption || 'Mood board picture' }),
+      el('span', { text: p.images[id].caption || 'Added ' + fmtDate(p.images[id].addedAt, false) }))))
+    : el('div', { class:'empty', style:{ height:'auto', padding:'28px 10px' } }, el('strong', { text:'No pictures on the mood board yet' }), el('span', { text:'Upload one, paste a picture address above, or add pictures to the mood board first.' })));
+  mdl = modal('Choose a picture', body, { cls:'wide' });
+  setTimeout(() => urlIn.focus(), 30);
+}
+
+/* =====================================================================
+   REPORTS · Google Docs status report + Google Slides status deck
+   The report is a Google Doc in the project's Drive folder, rewritten a short while
+   after each change, so Gemini and NotebookLM always read the current state.
+   ===================================================================== */
+const PLAN_DAYS = 14;
+const STATUS_LABEL = { todo:'To do', doing:'In progress', done:'Done' };
+const PRIORITY_LABEL = { h:'High', m:'Medium', l:'Low' };
+const escH = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const fmtD = d => MON[d.getMonth()] + ' ' + d.getDate();
+const fmtLong = d => d.toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+function planOf(p){
+  const g = p.mods.gantt && p.mods.gantt.data;
+  if(!g || !Array.isArray(g.phases)) return null;
+  const start = new Date((g.start || localDay(p.createdAt)) + 'T00:00:00');
+  const day = i => { const d = new Date(start); d.setDate(d.getDate() + i); return d; };
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const ti = Math.round((today - start) / 86400000);
+  const st = t => t.done ? 'done' : t.status === 'doing' ? 'doing' : 'todo';
+  const tasks = g.phases.flatMap(ph => (ph.tasks || []).map(t => ({ t, ph, st: st(t) })));
+  const by = s => tasks.filter(x => x.st === s);
+  const done = by('done').sort((a, b) => String(b.t.doneAt || '').localeCompare(String(a.t.doneAt || '')));
+  const doing = by('doing'), todo = by('todo').sort((a, b) => a.t.start - b.t.start);
+  return {
+    g, start, day, ti, tasks, done, doing, todo,
+    end: day(PLAN_DAYS - 1),
+    overdue: tasks.filter(x => x.st !== 'done' && x.t.end < ti),
+    upNext: todo.filter(x => x.t.start <= ti + 7),
+    nextMilestone: tasks.filter(x => x.t.milestone && x.st !== 'done').sort((a, b) => a.t.start - b.t.start)[0] || null,
+    pct: tasks.length ? Math.round(done.length / tasks.length * 100) : 0,
+    daysLeft: ti < 0 ? PLAN_DAYS : Math.max(0, PLAN_DAYS - ti),
+    span: t => fmtD(day(t.start)) + (t.end > t.start ? ' – ' + fmtD(day(t.end)) : '')
+  };
+}
+function boardPictures(p){
+  return MODULES.moodboard.imageRefs(p.mods.moodboard.data).map(id => p.images[id]).filter(Boolean);
+}
+function scoredOptions(p){
+  const d = p.mods.scope.data; if(!d || !(d.options || []).length) return [];
+  return d.options.map(o => {
+    const vals = (d.criteria || []).map(c => o.ratings && o.ratings[c.id]).filter(v => v > 0);
+    return { o, avg: vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null };
+  }).sort((a, b) => (b.avg || 0) - (a.avg || 0));
+}
+// Keeps simple formatting from a note; drops anything else.
+function noteToHTML(html){
+  const doc = new DOMParser().parseFromString('<div>' + (html || '') + '</div>', 'text/html');
+  const ok = new Set(['P','BR','B','STRONG','I','EM','U','UL','OL','LI','H1','H2','H3','BLOCKQUOTE','A','DIV','SPAN']);
+  const walk = n => [...n.childNodes].map(c => {
+    if(c.nodeType === 3) return escH(c.textContent);
+    if(c.nodeType !== 1) return '';
+    const inner = walk(c), tag = c.tagName;
+    if(!ok.has(tag)) return inner;
+    if(tag === 'A'){ const h = c.getAttribute('href') || ''; return /^https?:/i.test(h) ? `<a href="${escH(h)}">${inner}</a>` : inner; }
+    if(tag === 'DIV' || tag === 'SPAN') return tag === 'DIV' ? `<p>${inner}</p>` : inner;
+    const t = tag === 'H1' || tag === 'H2' ? 'h3' : tag.toLowerCase();
+    return t === 'br' ? '<br>' : `<${t}>${inner}</${t}>`;
+  }).join('');
+  return walk(doc.body.firstChild);
+}
+function thumbnail(src, max){
+  return new Promise(res => {
+    if(!src || !/^data:image\//.test(src)) return res(null);
+    const im = new Image();
+    im.onload = () => {
+      const s = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
+      const cv = document.createElement('canvas'); cv.width = Math.round(im.naturalWidth * s); cv.height = Math.round(im.naturalHeight * s);
+      const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(im, 0, 0, cv.width, cv.height);
+      res({ data: cv.toDataURL('image/jpeg', 0.82), w: cv.width, h: cv.height });
+    };
+    im.onerror = () => res(null);
+    im.src = src;
+  });
+}
+function attachmentLinks(p, list){
+  return (list || []).map(f => {
+    if(f.kind === 'link') return `<a href="${escH(f.url)}">${escH(f.name)}</a>`;
+    const m = p.files && p.files[f.id];
+    return m && m.driveId ? `<a href="https://drive.google.com/file/d/${escH(m.driveId)}/view">${escH(f.name)}</a>` : escH(f.name);
+  }).join(', ');
+}
+async function reportHTML(p){
+  const P = null, now = new Date(), out = [];   // the schedule lives on the planner's Timeline now
+  const h2 = t => out.push(`<h2 style="font-size:16pt;margin-top:18pt">${escH(t)}</h2>`);
+  const li = x => `<li><b>${escH(x.t.name)}</b> <span style="color:#7D7A75">· ${escH(x.ph.name)} · ${escH(P.span(x.t))}${x.t.priority === 'h' ? ' · High priority' : ''}</span>${x.t.note ? '<br>' + escH(x.t.note).replace(/\n/g, '<br>') : ''}</li>`;
+  out.push(`<h1 style="font-size:24pt">${escH(p.name || 'Untitled project')} — Status report</h1>`);
+  out.push(`<p style="color:#7D7A75">Updated ${escH(fmtLong(now))} at ${escH(now.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }))}. This document is kept up to date automatically by Anium.planning. Use it with Gemini or NotebookLM to write status updates and presentations.</p>`);
+  if(P){
+    h2('Summary');
+    out.push('<ul>' + [
+      `Plan: ${fmtD(P.start)} – ${fmtD(P.end)} (${P.daysLeft} day${P.daysLeft === 1 ? '' : 's'} left)`,
+      `Progress: ${P.done.length} of ${P.tasks.length} tasks done (${P.pct}%), ${P.doing.length} in progress`,
+      P.nextMilestone ? `Next milestone: ${escH(P.nextMilestone.t.name)} on ${fmtD(P.day(P.nextMilestone.t.start))}` : '',
+      P.overdue.length ? `Behind schedule: ${P.overdue.length} task${P.overdue.length === 1 ? '' : 's'} past their end date` : 'On schedule: no tasks are past their end date'
+    ].filter(Boolean).map(s => `<li>${s}</li>`).join('') + '</ul>');
+    h2('In progress');
+    out.push(P.doing.length ? '<ul>' + P.doing.map(li).join('') + '</ul>' : '<p>Nothing is marked in progress.</p>');
+    h2('Coming up (next 7 days)');
+    out.push(P.upNext.length ? '<ul>' + P.upNext.map(li).join('') + '</ul>' : '<p>Nothing scheduled to start in the next week.</p>');
+    if(P.overdue.length){ h2('Needs attention'); out.push('<ul>' + P.overdue.map(li).join('') + '</ul>'); }
+    h2('Completed');
+    out.push(P.done.length ? '<ul>' + P.done.map(x => `<li>${escH(x.t.name)} <span style="color:#7D7A75">· ${escH(x.ph.name)}${x.t.doneAt ? ' · done ' + escH(fmtD(new Date(x.t.doneAt))) : ''}</span></li>`).join('') + '</ul>' : '<p>No tasks completed yet.</p>');
+    h2('Plan by phase');
+    P.g.phases.forEach(ph => {
+      const tasks = ph.tasks || [], dn = tasks.filter(t => t.done).length;
+      out.push(`<h3 style="font-size:13pt;color:${escH(ph.color || '#2C2C2B')}">${escH(ph.name)} <span style="color:#7D7A75;font-weight:normal">— ${dn}/${tasks.length} done${tasks.length ? ', ' + escH(fmtD(P.day(Math.min(...tasks.map(t => t.start))))) + ' – ' + escH(fmtD(P.day(Math.max(...tasks.map(t => t.end))))) : ''}</span></h3>`);
+      if(ph.note) out.push(`<p>${escH(ph.note).replace(/\n/g, '<br>')}</p>`);
+      if((ph.files || []).length) out.push(`<p>Attachments: ${attachmentLinks(p, ph.files)}</p>`);
+      if(tasks.length){
+        out.push('<table style="border-collapse:collapse;width:100%"><tr>' + ['Task', 'Status', 'Dates', 'Priority', 'Details', 'Attachments'].map(c => `<th style="border:1px solid #ccc;padding:4px;background:#f3f3f3;text-align:left">${c}</th>`).join('') + '</tr>' +
+          tasks.map(t => '<tr>' + [escH(t.name) + (t.milestone ? ' (milestone)' : ''), STATUS_LABEL[t.done ? 'done' : t.status === 'doing' ? 'doing' : 'todo'], escH(P.span(t)), PRIORITY_LABEL[t.priority] || '', escH(t.note || '').replace(/\n/g, '<br>'), attachmentLinks(p, t.files)].map(v => `<td style="border:1px solid #ccc;padding:4px;vertical-align:top">${v}</td>`).join('') + '</tr>').join('') + '</table>');
+      }
+    });
+  } else {
+    h2('Schedule'); out.push(`<p>The schedule and day-by-day progress are on the Timeline in Anium.planning: <a href="${escH(location.origin)}/#timeline">open the Timeline</a>. Its Progress button makes a status report of the work itself.</p>`);
+  }
+  const opts = scoredOptions(p);
+  if(opts.length){
+    h2('Design options (Narrow scope)');
+    out.push('<ol>' + opts.map(({ o, avg }) => `<li><b>${escH(o.title || 'Untitled option')}</b>${avg != null ? ` — average rating ${avg.toFixed(1)} / 5` : ''}${o.notes ? '<br>' + escH(o.notes).replace(/\n/g, '<br>') : ''}</li>`).join('') + '</ol>');
+  }
+  const pics = boardPictures(p);
+  if(pics.length){
+    h2('Mood board');
+    out.push(`<p>${pics.length} picture${pics.length === 1 ? '' : 's'} on the board.</p>`);
+    const thumbs = await Promise.all(pics.slice(0, 12).map(im => thumbnail(im.src, 360)));
+    pics.slice(0, 12).forEach((im, i) => {
+      const t = thumbs[i], link = im.driveId ? `https://drive.google.com/file/d/${im.driveId}/view` : im.url;
+      if(t) out.push(`<p><img src="${t.data}" width="${t.w}" height="${t.h}" alt="${escH(im.caption || 'Mood board picture')}"></p>`);
+      const cap = [im.caption ? escH(im.caption) : '', link ? `<a href="${escH(link)}">Open picture</a>` : ''].filter(Boolean).join(' · ');
+      if(cap) out.push(`<p style="color:#7D7A75">${cap}</p>`);
+    });
+  }
+  const notes = (p.mods.notes.data && p.mods.notes.data.notes) || [];
+  if(notes.length){
+    h2('Notes');
+    notes.forEach(n => { out.push(`<h3 style="font-size:13pt">${escH(n.title || 'Untitled note')}</h3>`); out.push(noteToHTML(n.html)); });
+  }
+  return '<!doctype html><html><head><meta charset="utf-8"></head><body style="font-family:Arial,sans-serif">' + out.join('\n') + '</body></html>';
+}
+const reportTimers = {};
+function scheduleReport(p, ms){
+  if(!driveOn || ROLE !== 'owner') return;
+  clearTimeout(reportTimers[p.id]);
+  reportTimers[p.id] = setTimeout(() => { delete reportTimers[p.id]; refreshReport(p).catch(e => console.warn('Status report', e)); }, ms == null ? 20000 : ms);
+}
+async function refreshReport(p){
+  if(!driveOn) return null;
+  if(!p.drive || !p.drive.folderId) await flush();
+  if(!p.drive || !p.drive.folderId) return null;
+  const name = (p.name || 'Untitled project') + ' — Status report';
+  const blob = new Blob([await reportHTML(p)], { type:'text/html' });
+  if(p.drive.reportId){
+    try {
+      await Drive.update(p.drive.reportId, blob);
+      if(p.drive.reportName !== name){ await Drive.json('PATCH', '/files/' + p.drive.reportId + '?fields=id', { name }); p.drive.reportName = name; p._dirty = true; scheduleFlush(); }
+      return p.drive.reportId;
+    } catch(e){ if(!(e && e.status === 404)) throw e; p.drive.reportId = null; }
+  }
+  const r = await Drive.upload({ name, mimeType:'application/vnd.google-apps.document', parents:[p.drive.folderId], appProperties:{ dwReport: p.id } }, blob);
+  p.drive.reportId = r.id; p.drive.reportName = name; p._dirty = true; scheduleFlush();
+  return r.id;
 }
 // Opens a tab straight away (so the browser allows it), then points it at the result.
 async function openWhenReady(label, work){
   const w = window.open('', '_blank');
-  if(w) w.document.write('<title>' + esc(label) + '</title><p style="font:15px system-ui;padding:24px;color:#555">' + esc(label) + '…</p>');
+  if(w) w.document.write('<title>' + label + '</title><p style="font:15px system-ui;padding:24px;color:#555">' + label + '…</p>');
   try {
     const url = await work();
     if(!url){ if(w) w.close(); return; }
     if(w) w.location.href = url; else window.open(url, '_blank', 'noopener');
   } catch(e){
     if(w) w.close();
-    driveFail(e, label.replace(/^\w+ /, '').toLowerCase());
+    toast(e && e.code === 'auth' ? 'Google sign-in expired. Reconnect Drive and try again.' : 'Couldn’t reach Google Drive. Check your connection and try again.', 6000);
+    if(e && e.code === 'auth') driveError(e);
   }
+}
+function openStatusReport(p){
+  openWhenReady('Opening the status report', async () => { const id = await refreshReport(p); return id && 'https://docs.google.com/document/d/' + id + '/edit'; });
 }
 
-/* --- what goes into reports --- */
-function timelineOf(){
-  const tasks = [...TASKS.values()]; if(!tasks.length) return null;
-  const t = today(), wk = addDays(t, -7), byStart = (a, b) => a.start.localeCompare(b.start);
-  const open = tasks.filter(x => x.status !== 'done');
-  return {
-    tasks, open,
-    doing: tasks.filter(x => x.status === 'doing').sort(byStart),
-    overdue: open.filter(x => x.end < t).sort(byStart),
-    upNext: open.filter(x => x.status !== 'doing' && x.start <= addDays(t, 7) && x.end >= t).sort(byStart),
-    finished: tasks.filter(x => x.status === 'done' && x.doneAt && localDay(new Date(x.doneAt)) > wk).sort((a, b) => String(b.doneAt).localeCompare(String(a.doneAt))),
-    nextMilestone: open.filter(x => x.milestone && x.start >= t).sort(byStart)[0] || null
-  };
-}
-function recentWork(n){
-  const t = today(), out = [];
-  for(let i = n - 1; i >= 0; i--){
-    const date = addDays(t, -i), d = getDay(date);
-    if(!d || !d.blocks.length) continue;
-    const blocks = d.blocks.slice().sort((a, b) => a.start - b.start);
-    out.push({ date, d, done: blocks.filter(b => b.status === 'done'), open: blocks.filter(b => b.status !== 'done') });
-  }
-  return out;
-}
-const attachmentLinks = list => (list || []).map(f => f.url ? '<a href="' + esc(f.url) + '">' + esc(f.name) + '</a>' : esc(f.name)).join(', ');
-const loggedHours = t => fmtHours(minsOf(loggedFor(t.id).filter(x => x.b.status === 'done').map(x => x.b)));
-function reportHTML(){
-  const T = timelineOf(), now = new Date(), out = [], W = recentWork(7), t0 = today();
-  const h2 = s => out.push('<h2>' + esc(s) + '</h2>');
-  const li = t => { const ph = phaseOf(t); return '<li><b>' + esc(t.name || 'Untitled task') + '</b> — ' + esc(ph ? ph.name : 'No phase') + ', ' + esc(taskSpan(t)) + (t.priority === 'h' ? ', high priority' : '') + (loggedFor(t.id).length ? ', ' + loggedHours(t) + ' logged' : '') + (t.note ? '<br>' + esc(t.note).replace(/\n/g, '<br>') : '') + (t.files.length ? '<br>Files: ' + attachmentLinks(t.files) : '') + '</li>'; };
-  const wDone = W.flatMap(w => w.done);
-  out.push('<h1>' + esc(projName()) + ' — Status report</h1>');
-  out.push('<p>' + esc(fmtLong(now)) + '. Made by Anium.planning from the day planner and timeline. Use it with Gemini or NotebookLM to write updates and presentations.</p>');
-  h2('Summary');
-  out.push('<ul>' + [
-    'Last 7 days: ' + plural(wDone.length, 'block') + ' of work done, ' + fmtHours(minsOf(wDone)) + ' across ' + plural(W.filter(w => w.done.length).length, 'day'),
-    T ? 'Timeline: ' + plural(T.open.length, 'open task') + ', ' + T.doing.length + ' in progress, ' + T.finished.length + ' finished in the last 7 days' : '',
-    T && T.nextMilestone ? 'Next milestone: ' + esc(T.nextMilestone.name) + ' on ' + fmtDay(T.nextMilestone.start) : '',
-    T ? (T.overdue.length ? 'Behind schedule: ' + plural(T.overdue.length, 'task') + ' past their end date' : 'On schedule: no open tasks are past their end date') : ''
-  ].filter(Boolean).map(s => '<li>' + s + '</li>').join('') + '</ul>');
-  h2('Work done, day by day');
-  if(!W.length) out.push('<p>No days planned in the last week.</p>');
-  W.forEach(w => {
-    out.push('<h3>' + esc(dayTitle(w.date)) + ' — ' + w.done.length + ' of ' + (w.done.length + w.open.length) + ' done, ' + fmtHours(minsOf(w.done)) + '</h3>');
-    if(w.d.focus) out.push('<p><i>Focus: ' + esc(w.d.focus) + '</i></p>');
-    if(w.done.length) out.push('<ul>' + w.done.map(b => { const x = taskById(b.taskId); return '<li>' + esc(b.title || 'Untitled block') + ' (' + esc(fmtRange(b.start, b.end)) + (x ? ', ' + esc(x.name) : '') + ')' + (b.steps.length ? '<br>Steps: ' + b.steps.map(s => esc(s.text)).join('; ') : '') + (b.note ? '<br>' + esc(b.note).replace(/\n/g, '<br>') : '') + '</li>'; }).join('') + '</ul>');
-    if(w.open.length) out.push('<p>' + (w.date === t0 ? 'Still to do today: ' : 'Not finished: ') + w.open.map(b => esc(b.title || 'Untitled block')).join(', ') + '</p>');
-  });
-  if(T){
-    h2('In progress'); out.push(T.doing.length ? '<ul>' + T.doing.map(li).join('') + '</ul>' : '<p>Nothing is marked in progress.</p>');
-    h2('Finished in the last 7 days'); out.push(T.finished.length ? '<ul>' + T.finished.map(li).join('') + '</ul>' : '<p>No timeline tasks finished this week.</p>');
-    h2('Coming up (next 7 days)'); out.push(T.upNext.length ? '<ul>' + T.upNext.map(li).join('') + '</ul>' : '<p>Nothing scheduled to start in the next week.</p>');
-    if(T.overdue.length){ h2('Needs attention'); out.push('<ul>' + T.overdue.map(li).join('') + '</ul>'); }
-    h2('Timeline by phase');
-    const recent = addDays(t0, -30);
-    phases().map(p => ({ p, list: T.tasks.filter(t => t.phaseId === p.id) })).concat([{ p:null, list: T.tasks.filter(t => !phaseOf(t)) }]).forEach(({ p, list }) => {
-      if(!list.length) return;
-      const shownList = list.filter(t => t.status !== 'done' || (t.doneAt && localDay(new Date(t.doneAt)) >= recent) || t.end >= recent).sort((a, b) => a.start.localeCompare(b.start));
-      out.push('<h3>' + esc(p ? p.name : 'No phase') + ' — ' + list.filter(t => t.status === 'done').length + '/' + list.length + ' done</h3>');
-      if(shownList.length) out.push('<table border="1" cellpadding="4"><tr><th>Task</th><th>Status</th><th>Dates</th><th>Priority</th><th>Time logged</th><th>Details</th><th>Files</th></tr>'
-        + shownList.map(t => '<tr><td>' + esc(t.name || 'Untitled task') + (t.milestone ? ' (milestone)' : '') + '</td><td>' + STATUS[t.status] + '</td><td>' + esc(taskSpan(t)) + '</td><td>' + PRIORITY[t.priority] + '</td><td>' + (loggedFor(t.id).length ? loggedHours(t) : '') + '</td><td>' + esc(t.note || '').replace(/\n/g, '<br>') + '</td><td>' + attachmentLinks(t.files) + '</td></tr>').join('') + '</table>');
-      const older = list.length - shownList.length;
-      if(older) out.push('<p>' + plural(older, 'older finished task') + ' not listed.</p>');
-    });
-  }
-  return '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(projName()) + ' — Status report</title></head><body>' + out.join('\n') + '</body></html>';
-}
-async function refreshReport(){
-  await Drive.ensureRoot();
-  const name = projName() + ' — Status report';
-  const blob = new Blob([reportHTML()], { type:'text/html' });
-  const d = driveRec();
-  if(d.reportId){
-    try {
-      await Drive.update(d.reportId, blob);
-      if(d.reportName !== name) await Drive.json('PATCH', '/files/' + d.reportId + '?fields=id', { name });
-      setDrive({ reportName: name, reportAt: nowISO() });
-      return d.reportId;
-    } catch(e){ if(!(e && e.status === 404)) throw e; }
-  }
-  const r = await Drive.upload({ name, mimeType:'application/vnd.google-apps.document', parents:[Drive.rootId], appProperties:{ dw:'report' } }, blob);
-  setDrive({ reportId: r.id, reportName: name, reportAt: nowISO() });
-  return r.id;
-}
-// One Google Doc, rewritten with the latest each time you open it.
-function makeReport(){
-  if(needDrive('make a status report')) return;
-  openWhenReady('Updating your status report', async () => 'https://docs.google.com/document/d/' + await refreshReport() + '/edit');
-}
-
-/* --- status slides: built as PowerPoint here, converted to Google Slides by Drive --- */
+/* --- Status slides (built as PowerPoint in the browser, converted to Google Slides by Drive) --- */
+const PPTX_TYPE = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 let pptxLib = null;
 function loadPptx(){
   return pptxLib || (pptxLib = new Promise((res, rej) => {
@@ -1771,166 +1658,210 @@ function loadPptx(){
     document.head.append(s);
   }));
 }
-async function buildDeck(){
+async function buildDeck(p){
   const PptxGenJS = await loadPptx();
-  const T = timelineOf(), W = recentWork(7), t0 = today(), now = new Date();
-  const wDone = W.flatMap(w => w.done);
-  const pptx = new PptxGenJS(); pptx.layout = 'LAYOUT_WIDE'; pptx.title = projName() + ' — Status update';
-  const C = { ink:'2C2C2B', muted:'7D7A75', line:'E6E5E3', soft:'F4F3F1', acc:'2783DE', ok:'46A171', warn:'D5803B' }, F = 'Arial', Wd = 13.333;
-  const hex = c => /^#?[0-9a-f]{6}$/i.test(String(c || '')) ? String(c).replace('#', '').toUpperCase() : C.muted;
+  if(ROLE === 'owner' && driveOn){ try { await ensureImages(p); } catch(e){} }
+  const P = null, today = new Date();   // the schedule lives on the planner's Timeline now
+  const pptx = new PptxGenJS(); pptx.layout = 'LAYOUT_WIDE'; pptx.title = (p.name || 'Project') + ' — Status update';
+  const C = { ink:'2C2C2B', muted:'7D7A75', line:'E6E5E3', soft:'F4F3F1', acc:'2783DE', ok:'46A171', warn:'D5803B', bad:'E56458' }, F = 'Arial', W = 13.333;
+  const hex = c => String(c || '#2783DE').replace('#', '').slice(0, 6).toUpperCase();
   pptx.defineSlideMaster({ title:'BODY', background:{ color:'FFFFFF' },
-    objects:[ { rect:{ x:0, y:7.12, w:Wd, h:0.38, fill:{ color:C.soft } } }, { text:{ text: projName() + '  ·  Status update ' + fmtD(now), options:{ x:0.5, y:7.16, w:9, h:0.3, fontSize:9, color:C.muted, fontFace:F } } } ],
+    objects:[ { rect:{ x:0, y:7.12, w:W, h:0.38, fill:{ color:C.soft } } }, { text:{ text:(p.name || 'Project') + '  ·  Status update ' + fmtD(today), options:{ x:0.5, y:7.16, w:9, h:0.3, fontSize:9, color:C.muted, fontFace:F } } } ],
     slideNumber:{ x:12.2, y:7.16, w:0.7, h:0.3, fontSize:9, color:C.muted, fontFace:F } });
-  const head = (s, t, sub) => { s.addText(t, { x:0.5, y:0.32, w:Wd - 1, h:0.62, fontSize:26, bold:true, color:C.ink, fontFace:F }); if(sub) s.addText(sub, { x:0.5, y:0.92, w:Wd - 1, h:0.36, fontSize:13, color:C.muted, fontFace:F }); };
+  const head = (s, t, sub) => { s.addText(t, { x:0.5, y:0.32, w:W - 1, h:0.62, fontSize:26, bold:true, color:C.ink, fontFace:F }); if(sub) s.addText(sub, { x:0.5, y:0.92, w:W - 1, h:0.36, fontSize:13, color:C.muted, fontFace:F }); };
   const dot = (s, x, y, color) => s.addShape(pptx.ShapeType.ellipse, { x, y, w:0.14, h:0.14, fill:{ color:hex(color) }, line:{ color:hex(color) } });
+  // A list of tasks, continuing onto more slides when long
   const taskSlides = (titleText, items, empty, extra) => {
-    for(let i = 0; i < Math.max(1, items.length); i += 6){
+    const per = 6;
+    for(let i = 0; i < Math.max(1, items.length); i += per){
       const s = pptx.addSlide({ masterName:'BODY' });
-      head(s, titleText + (i ? ' (continued)' : ''), items.length ? plural(items.length, 'task') : null);
-      if(!items.length){ s.addText(empty, { x:0.5, y:1.6, w:Wd - 1, h:0.5, fontSize:16, color:C.muted, fontFace:F }); return; }
-      items.slice(i, i + 6).forEach((t, k) => {
-        const y = 1.55 + k * 0.9, ph = phaseOf(t);
-        dot(s, 0.55, y + 0.12, taskColor(t));
-        s.addText((t.name || 'Untitled task') + (t.milestone ? '  ◆' : ''), { x:0.85, y, w:7.6, h:0.36, fontSize:16, bold:true, color:C.ink, fontFace:F });
-        s.addText([ph ? ph.name : '', taskSpan(t), extra ? extra(t) : (t.priority === 'h' ? 'High priority' : '')].filter(Boolean).join('   ·   '), { x:8.6, y, w:4.2, h:0.36, fontSize:11, color:C.muted, align:'right', fontFace:F });
-        if(t.note) s.addText(t.note.replace(/\s+/g, ' ').slice(0, 180) + (t.note.length > 180 ? '…' : ''), { x:0.85, y:y + 0.36, w:Wd - 1.5, h:0.4, fontSize:12, color:C.muted, fontFace:F });
+      head(s, titleText + (i ? ' (continued)' : ''), items.length ? items.length + ' task' + (items.length === 1 ? '' : 's') : null);
+      if(!items.length){ s.addText(empty, { x:0.5, y:1.6, w:W - 1, h:0.5, fontSize:16, color:C.muted, fontFace:F }); return; }
+      items.slice(i, i + per).forEach((x, k) => {
+        const y = 1.55 + k * 0.9;
+        dot(s, 0.55, y + 0.12, x.ph.color);
+        s.addText(x.t.name + (x.t.milestone ? '  ◆' : ''), { x:0.85, y, w:7.6, h:0.36, fontSize:16, bold:true, color:C.ink, fontFace:F });
+        s.addText([x.ph.name, P.span(x.t), extra ? extra(x) : (x.t.priority === 'h' ? 'High priority' : '')].filter(Boolean).join('   ·   '), { x:8.6, y, w:4.2, h:0.36, fontSize:11, color:C.muted, align:'right', fontFace:F });
+        if(x.t.note) s.addText(x.t.note.replace(/\s+/g, ' ').slice(0, 180) + (x.t.note.length > 180 ? '…' : ''), { x:0.85, y:y + 0.36, w:W - 1.5, h:0.4, fontSize:12, color:C.muted, fontFace:F });
       });
     }
   };
+  // 1. Title
   let s = pptx.addSlide();
   s.addShape(pptx.ShapeType.rect, { x:0, y:0, w:0.2, h:7.5, fill:{ color:C.acc }, line:{ color:C.acc } });
-  s.addText(projName(), { x:0.9, y:2.2, w:11.6, h:1.3, fontSize:44, bold:true, color:C.ink, fontFace:F });
-  s.addText('Status update · ' + fmtLong(now), { x:0.9, y:3.5, w:11.6, h:0.6, fontSize:20, color:C.muted, fontFace:F });
-  s.addText(fmtHours(minsOf(wDone)) + ' of work done in the last 7 days' + (T ? '   ·   ' + T.doing.length + ' tasks in progress' : ''), { x:0.9, y:4.2, w:11.6, h:0.5, fontSize:14, color:C.muted, fontFace:F });
-  s = pptx.addSlide({ masterName:'BODY' }); head(s, 'At a glance', 'The last 7 days');
-  const tiles = [[String(wDone.length), 'Blocks done', C.ok], [fmtHours(minsOf(wDone)), 'Hours of work', C.acc]].concat(T ? [[String(T.doing.length), 'Tasks in progress', C.warn], [String(T.finished.length), 'Tasks finished', C.ink]] : []);
-  tiles.forEach(([v, l, c], i) => {
-    const x = 0.5 + i * 3.1;
-    s.addShape(pptx.ShapeType.roundRect, { x, y:1.6, w:2.9, h:1.7, fill:{ color:C.soft }, line:{ color:C.line }, rectRadius:0.12 });
-    s.addText(v, { x, y:1.8, w:2.9, h:0.85, fontSize:36, bold:true, color:c, align:'center', fontFace:F });
-    s.addText(l.toUpperCase(), { x, y:2.65, w:2.9, h:0.4, fontSize:11, color:C.muted, align:'center', charSpacing:2, fontFace:F });
-  });
-  const bullets = [T && T.nextMilestone ? 'Next milestone: ' + T.nextMilestone.name + ' — ' + fmtDay(T.nextMilestone.start) : null,
-    T ? (T.overdue.length ? plural(T.overdue.length, 'task') + (T.overdue.length === 1 ? ' is' : ' are') + ' past the planned end date' : 'On schedule — no open task is past its end date') : null,
-    W.length ? 'Days planned this week: ' + W.map(w => dayShort(w.date)).join(', ') : null].filter(Boolean);
-  if(bullets.length) s.addText(bullets.map(t => ({ text:t, options:{ bullet:true } })), { x:0.5, y:3.8, w:12.3, h:2.6, fontSize:16, color:C.ink, fontFace:F, valign:'top', paraSpaceAfter:8 });
-  const worked = W.filter(w => w.done.length);
-  for(let i = 0; i < worked.length; i += 3){
-    s = pptx.addSlide({ masterName:'BODY' }); head(s, 'Work done' + (i ? ' (continued)' : ''), 'Finished blocks, day by day');
-    worked.slice(i, i + 3).forEach((w, k) => {
-      const x = 0.5 + k * 4.15;
-      s.addText(dayShort(w.date), { x, y:1.5, w:3.95, h:0.4, fontSize:16, bold:true, color:C.ink, fontFace:F });
-      s.addText(w.done.length + ' done · ' + fmtHours(minsOf(w.done)), { x, y:1.88, w:3.95, h:0.3, fontSize:11, color:C.muted, fontFace:F });
-      const items = w.done.slice(0, 8).map(b => ({ text: (b.title || 'Untitled block') + '  ' + fmtRange(b.start, b.end), options:{ bullet:true } }));
-      if(w.done.length > 8) items.push({ text: '+' + (w.done.length - 8) + ' more', options:{ bullet:false } });
-      s.addText(items, { x, y:2.3, w:3.95, h:4.5, fontSize:12, color:C.ink, fontFace:F, valign:'top', paraSpaceAfter:5 });
+  s.addText(p.name || 'Project', { x:0.9, y:2.2, w:11.6, h:1.3, fontSize:44, bold:true, color:C.ink, fontFace:F });
+  s.addText('Status update · ' + fmtLong(today), { x:0.9, y:3.5, w:11.6, h:0.6, fontSize:20, color:C.muted, fontFace:F });
+  if(P) s.addText(`2-week plan: ${fmtD(P.start)} – ${fmtD(P.end)}   ·   ${P.pct}% complete   ·   ${P.daysLeft} day${P.daysLeft === 1 ? '' : 's'} left`, { x:0.9, y:4.2, w:11.6, h:0.5, fontSize:14, color:C.muted, fontFace:F });
+  if(P){
+    // 2. At a glance
+    s = pptx.addSlide({ masterName:'BODY' }); head(s, 'At a glance', fmtD(P.start) + ' – ' + fmtD(P.end));
+    [[P.pct + '%', 'Complete', C.warn], [P.done.length + ' / ' + P.tasks.length, 'Tasks done', C.ok], [String(P.doing.length), 'In progress', C.acc], [String(P.daysLeft), 'Days left', C.ink]].forEach(([v, l, c], i) => {
+      const x = 0.5 + i * 3.1;
+      s.addShape(pptx.ShapeType.roundRect, { x, y:1.6, w:2.9, h:1.7, fill:{ color:C.soft }, line:{ color:C.line }, rectRadius:0.12 });
+      s.addText(v, { x, y:1.8, w:2.9, h:0.85, fontSize:40, bold:true, color:c, align:'center', fontFace:F });
+      s.addText(l.toUpperCase(), { x, y:2.65, w:2.9, h:0.4, fontSize:11, color:C.muted, align:'center', charSpacing:2, fontFace:F });
+    });
+    s.addShape(pptx.ShapeType.roundRect, { x:0.5, y:3.75, w:12.3, h:0.24, fill:{ color:C.soft }, line:{ color:C.line }, rectRadius:0.1 });
+    if(P.pct) s.addShape(pptx.ShapeType.roundRect, { x:0.5, y:3.75, w:Math.max(0.24, 12.3 * P.pct / 100), h:0.24, fill:{ color:C.ok }, line:{ color:C.ok }, rectRadius:0.1 });
+    const bullets = [
+      P.nextMilestone ? `Next milestone: ${P.nextMilestone.t.name} — ${fmtD(P.day(P.nextMilestone.t.start))}` : null,
+      P.overdue.length ? `${P.overdue.length} task${P.overdue.length === 1 ? ' is' : 's are'} past the planned end date` : 'On schedule — nothing is past its end date',
+      P.upNext.length ? `${P.upNext.length} task${P.upNext.length === 1 ? '' : 's'} starting in the next 7 days` : null
+    ].filter(Boolean);
+    s.addText(bullets.map(t => ({ text:t, options:{ bullet:true } })), { x:0.5, y:4.3, w:12.3, h:2.4, fontSize:16, color:C.ink, fontFace:F, valign:'top', paraSpaceAfter:8 });
+    // 3. Phases
+    s = pptx.addSlide({ masterName:'BODY' }); head(s, 'Progress by phase');
+    const phases = P.g.phases.slice(0, 8), rowH = Math.min(0.68, 5.2 / Math.max(1, phases.length));
+    phases.forEach((ph, i) => {
+      const tasks = ph.tasks || [], dn = tasks.filter(t => t.done).length, y = 1.5 + i * rowH, ratio = tasks.length ? dn / tasks.length : 0;
+      dot(s, 0.55, y + 0.14, ph.color);
+      s.addText(ph.name, { x:0.85, y, w:4.3, h:0.4, fontSize:15, bold:true, color:C.ink, fontFace:F });
+      s.addShape(pptx.ShapeType.roundRect, { x:5.3, y:y + 0.1, w:5, h:0.2, fill:{ color:C.soft }, line:{ color:C.line }, rectRadius:0.08 });
+      if(ratio) s.addShape(pptx.ShapeType.roundRect, { x:5.3, y:y + 0.1, w:Math.max(0.2, 5 * ratio), h:0.2, fill:{ color:hex(ph.color) }, line:{ color:hex(ph.color) }, rectRadius:0.08 });
+      const sp = tasks.length ? fmtD(P.day(Math.min(...tasks.map(t => t.start)))) + ' – ' + fmtD(P.day(Math.max(...tasks.map(t => t.end)))) : 'No tasks';
+      s.addText(`${dn}/${tasks.length}   ·   ${sp}`, { x:10.4, y, w:2.45, h:0.4, fontSize:11, color:C.muted, align:'right', fontFace:F });
+    });
+    // 4. Timeline
+    s = pptx.addSlide({ masterName:'BODY' }); head(s, 'Timeline');
+    const rows = [];
+    P.g.phases.forEach(ph => { rows.push({ ph }); (ph.tasks || []).forEach(t => rows.push({ ph, t })); });
+    const showTasks = rows.length <= 20, list = showTasks ? rows : rows.filter(r => !r.t);
+    const gx = 3.6, gw = W - 0.5 - gx, dw = gw / PLAN_DAYS, gy = 1.75, rh = Math.min(0.32, 4.9 / Math.max(1, list.length));
+    for(let i = 0; i < PLAN_DAYS; i++){
+      const d = P.day(i), wk = d.getDay() === 0 || d.getDay() === 6;
+      if(wk) s.addShape(pptx.ShapeType.rect, { x:gx + i * dw, y:gy - 0.05, w:dw, h:rh * list.length + 0.1, fill:{ color:'FAF9F7' }, line:{ color:'FAF9F7' } });
+      s.addText(String(d.getDate()), { x:gx + i * dw, y:1.35, w:dw, h:0.35, fontSize:10, color:i === P.ti ? C.acc : C.muted, bold:i === P.ti, align:'center', fontFace:F });
+    }
+    list.forEach((r, i) => {
+      const y = gy + i * rh, tasks = r.t ? [r.t] : (r.ph.tasks || []);
+      s.addText(r.t ? r.t.name : r.ph.name, { x:0.5, y, w:gx - 0.6, h:rh, fontSize:r.t ? 9.5 : 10, bold:!r.t, color:r.t ? C.ink : hex(r.ph.color), fontFace:F, valign:'middle' });
+      if(!tasks.length) return;
+      const a = r.t ? r.t.start : Math.min(...tasks.map(t => t.start)), b = r.t ? r.t.end : Math.max(...tasks.map(t => t.end));
+      if(r.t && r.t.milestone) s.addShape(pptx.ShapeType.diamond, { x:gx + a * dw + dw / 2 - rh * 0.3, y:y + rh * 0.2, w:rh * 0.6, h:rh * 0.6, fill:{ color:hex(r.ph.color) }, line:{ color:hex(r.ph.color) } });
+      else s.addShape(pptx.ShapeType.roundRect, { x:gx + a * dw + 0.02, y:y + rh * (r.t ? 0.2 : 0.15), w:(b - a + 1) * dw - 0.04, h:rh * (r.t ? 0.6 : 0.7), fill:{ color:hex(r.ph.color), transparency:r.t ? (r.t.done ? 55 : 0) : 75 }, line:{ color:hex(r.ph.color), transparency:r.t ? 0 : 75 }, rectRadius:0.05 });
+    });
+    if(P.ti >= 0 && P.ti < PLAN_DAYS) s.addShape(pptx.ShapeType.line, { x:gx + P.ti * dw + dw / 2, y:gy - 0.05, w:0, h:rh * list.length + 0.1, line:{ color:C.acc, width:1.5 } });
+    if(!showTasks) s.addText('Showing phases only (' + P.tasks.length + ' tasks). The status report has every task.', { x:0.5, y:6.7, w:W - 1, h:0.3, fontSize:10, color:C.muted, fontFace:F });
+    // 5–8. Task lists
+    taskSlides('In progress', P.doing, 'Nothing is marked in progress yet.');
+    taskSlides('Completed', P.done, 'No tasks completed yet.', x => x.t.doneAt ? 'Done ' + fmtD(new Date(x.t.doneAt)) : 'Done');
+    taskSlides('Coming up — next 7 days', P.upNext, 'Nothing scheduled to start in the next week.');
+    if(P.overdue.length) taskSlides('Needs attention', P.overdue, '', x => 'Planned end ' + fmtD(P.day(x.t.end)));
+  }
+  // 9. Mood board
+  const pics = boardPictures(p).filter(im => im.src).slice(0, 6);
+  if(pics.length){
+    s = pptx.addSlide({ masterName:'BODY' }); head(s, 'Mood board', boardPictures(p).length + ' picture' + (boardPictures(p).length === 1 ? '' : 's'));
+    const thumbs = await Promise.all(pics.map(im => thumbnail(im.src, 900)));
+    const cols = pics.length <= 2 ? pics.length : 3, cw = (W - 1 - (cols - 1) * 0.3) / cols, ch = pics.length <= 3 ? 4.6 : 2.45;
+    thumbs.forEach((t, i) => {
+      if(!t) return;
+      const cx = 0.5 + (i % cols) * (cw + 0.3), cy = 1.5 + Math.floor(i / cols) * (ch + 0.25), sc = Math.min(cw / t.w, ch / t.h);
+      s.addImage({ data:t.data.replace(/^data:/, ''), x:cx + (cw - t.w * sc) / 2, y:cy + (ch - t.h * sc) / 2, w:t.w * sc, h:t.h * sc });
     });
   }
-  if(T){
-    // Timeline: last week through the next four
-    const w0 = addDays(weekStart(t0), -7), N = 35, w1 = addDays(w0, N - 1);
-    s = pptx.addSlide({ masterName:'BODY' }); head(s, 'Timeline', fmtDay(w0) + ' – ' + fmtDay(w1));
-    const rows = [];
-    phases().map(p => ({ p, list: T.tasks.filter(t => t.phaseId === p.id) })).concat([{ p:null, list: T.tasks.filter(t => !phaseOf(t)) }]).forEach(({ p, list }) => {
-      const inWin = list.filter(t => t.end >= w0 && t.start <= w1).sort((a, b) => a.start.localeCompare(b.start));
-      if(!inWin.length) return;
-      rows.push({ p }); inWin.forEach(t => rows.push({ p, t }));
+  // 10. Options
+  const opts = scoredOptions(p);
+  if(opts.length){
+    s = pptx.addSlide({ masterName:'BODY' }); head(s, 'Design options', 'Ranked by average rating');
+    opts.slice(0, 6).forEach(({ o, avg }, i) => {
+      const y = 1.55 + i * 0.85;
+      s.addText((i + 1) + '.  ' + (o.title || 'Untitled option'), { x:0.5, y, w:8.5, h:0.4, fontSize:17, bold:true, color:C.ink, fontFace:F });
+      s.addText(avg != null ? avg.toFixed(1) + ' / 5' : 'Not rated', { x:10.3, y, w:2.5, h:0.4, fontSize:15, color:avg != null ? C.acc : C.muted, align:'right', fontFace:F });
+      if(o.notes) s.addText(o.notes.replace(/\s+/g, ' ').slice(0, 150), { x:0.9, y:y + 0.38, w:11.9, h:0.36, fontSize:12, color:C.muted, fontFace:F });
     });
-    const list = rows.slice(0, 22);
-    const gx = 3.6, gw = Wd - 0.5 - gx, dw = gw / N, gy = 1.75, rh = Math.min(0.3, 4.9 / Math.max(1, list.length));
-    for(let i = 0; i < N; i += 7) s.addText(fmtD(parseDay(addDays(w0, i))), { x:gx + i * dw, y:1.35, w:dw * 7, h:0.35, fontSize:10, color:C.muted, fontFace:F });
-    for(let i = 0; i < N; i++){ const d = parseDay(addDays(w0, i)); if(d.getDay() % 6 === 0) s.addShape(pptx.ShapeType.rect, { x:gx + i * dw, y:gy - 0.05, w:dw, h:rh * list.length + 0.1, fill:{ color:'FAF9F7' }, line:{ color:'FAF9F7' } }); }
-    list.forEach((r, i) => {
-      const y = gy + i * rh;
-      if(!r.t){ s.addText(r.p ? r.p.name : 'No phase', { x:0.5, y, w:gx - 0.6, h:rh, fontSize:10, bold:true, color: r.p ? hex(r.p.color) : C.muted, fontFace:F, valign:'middle' }); return; }
-      const t = r.t, a = Math.max(0, daysBetween(w0, t.start)), b = Math.min(N - 1, daysBetween(w0, t.end));
-      s.addText(t.name || 'Untitled task', { x:0.5, y, w:gx - 0.6, h:rh, fontSize:9.5, color:C.ink, fontFace:F, valign:'middle' });
-      if(t.milestone) s.addShape(pptx.ShapeType.diamond, { x:gx + a * dw + dw / 2 - rh * 0.3, y:y + rh * 0.2, w:rh * 0.6, h:rh * 0.6, fill:{ color:hex(taskColor(t)) }, line:{ color:hex(taskColor(t)) } });
-      else s.addShape(pptx.ShapeType.roundRect, { x:gx + a * dw + 0.02, y:y + rh * 0.2, w:Math.max(0.05, (b - a + 1) * dw - 0.04), h:rh * 0.6, fill:{ color:hex(taskColor(t)), transparency: t.status === 'done' ? 55 : 0 }, line:{ color:hex(taskColor(t)) }, rectRadius:0.05 });
-    });
-    const ti = daysBetween(w0, t0);
-    s.addShape(pptx.ShapeType.line, { x:gx + ti * dw + dw / 2, y:gy - 0.05, w:0, h:rh * Math.max(1, list.length) + 0.1, line:{ color:C.acc, width:1.5 } });
-    if(rows.length > list.length) s.addText('Showing the first ' + list.length + ' rows. The status report lists every task.', { x:0.5, y:6.7, w:Wd - 1, h:0.3, fontSize:10, color:C.muted, fontFace:F });
-    if(!rows.length) s.addText('No tasks in these weeks.', { x:0.5, y:2, w:Wd - 1, h:0.5, fontSize:16, color:C.muted, fontFace:F });
-    taskSlides('In progress', T.doing, 'Nothing is marked in progress yet.');
-    taskSlides('Finished this week', T.finished, 'No timeline tasks finished in the last 7 days.', t => t.doneAt ? 'Done ' + fmtD(new Date(t.doneAt)) : 'Done');
-    taskSlides('Coming up — next 7 days', T.upNext, 'Nothing scheduled to start in the next week.');
-    if(T.overdue.length) taskSlides('Needs attention', T.overdue, '', t => 'Planned end ' + fmtDay(t.end));
   }
   return pptx.write({ outputType:'blob' });
 }
-function makeSlides(){
-  const name = projName() + ' — Status update ' + today();
+async function makeSlides(p){
+  const name = (p.name || 'Project') + ' — Status update ' + localDay(nowISO());
   if(!driveOn){
-    buildDeck().then(blob => {
-      const a = el('a', { href: URL.createObjectURL(blob), download: name + '.pptx' }); document.body.append(a); a.click(); a.remove();
-      toast('Downloaded. Open Google Slides → File → Import slides to use it there.', 7000);
-    }, () => toast('Couldn’t build the slides. Try again.', 4000));
+    const blob = await buildDeck(p), a = el('a', { href: URL.createObjectURL(blob), download: name + '.pptx' });
+    document.body.append(a); a.click(); a.remove();
+    toast('Downloaded. Open Google Slides → File → Import slides to use it there.', 7000);
     return;
   }
   openWhenReady('Building your status slides', async () => {
-    await Drive.ensureRoot();
-    const blob = new Blob([await buildDeck()], { type: PPTX_TYPE });
-    const r = await Drive.uploadLarge({ name, mimeType:'application/vnd.google-apps.presentation', parents:[Drive.rootId] }, blob);
-    const url = 'https://docs.google.com/presentation/d/' + r.id + '/edit';
-    setDrive({ slides: { id: r.id, url, at: nowISO() } });
-    return url;
+    if(!p.drive || !p.drive.folderId) await flush();
+    const blob = new Blob([await buildDeck(p)], { type: PPTX_TYPE });
+    const r = await Drive.uploadLarge({ name, mimeType:'application/vnd.google-apps.presentation', parents:[p.drive.folderId] }, blob);
+    toast('Status slides saved to the project’s Drive folder.', 5000);
+    return 'https://docs.google.com/presentation/d/' + r.id + '/edit';
   });
 }
-function openProgress(anchor){
-  const d = driveRec();
-  const item = (title, text, btn, extra) => el('div', { class:'rep-item' }, el('div', { class:'rep-tx' }, el('strong', { text: title }), el('span', { text }), extra || null), btn);
-  const latest = (url, at, label) => url ? el('a', { class:'rep-link', href: url, target:'_blank', rel:'noopener', text: label + (at ? ' · ' + fmtD(new Date(at)) : '') }) : null;
-  popover(anchor, el('div', { class:'rep-pop' }, el('div', { class:'rep-h', text:'Progress in Google' }),
-    item('Status report · Google Docs', 'One Google Doc with your last 7 days of work and where your timeline stands, rewritten each time you open it. Gemini and NotebookLM can read it.',
-      el('button', { class:'btn', onclick(){ closePop(); driveOn ? makeReport() : connectDrive(); } }, driveOn ? 'Open' : 'Connect'),
-      latest(d.reportId ? 'https://docs.google.com/document/d/' + d.reportId + '/edit' : null, d.reportAt, 'Last updated')),
-    item('Status slides · Google Slides', 'A fresh deck: overview, work done by day, the weeks around today, and what’s next.',
-      el('button', { class:'btn primary', onclick(){ closePop(); makeSlides(); } }, driveOn ? 'Make slides' : 'Download'),
-      latest(d.slides && d.slides.url, d.slides && d.slides.at, 'Latest deck')),
-    el('div', { class:'rep-tip' }, driveOn && folderURL() ? [el('a', { href: folderURL(), target:'_blank', rel:'noopener', text:'Open the Anium.planning folder' }), '. ']
-      : driveOn ? '' : 'Connect Google Drive to make these in your Drive; without it, slides download as a PowerPoint file. ',
-      'Tip: give the status report to Gemini or NotebookLM and ask “Write a status update for my boss.”')));
+function openReports(anchor, p){
+  const item = (title, text, btn) => el('div', { class:'rep-item' }, el('div', { class:'rep-tx' }, el('strong', { text:title }), el('span', { text }) ), btn);
+  const body = el('div', { class:'rep-pop' }, el('div', { class:'rep-h', text:'Progress for Google' }));
+  if(driveOn){
+    body.append(
+      item('Status report · Google Docs', 'Kept up to date in this project’s Drive folder. Gemini and NotebookLM can read it.', el('button', { class:'btn', onclick(){ closePop(); openStatusReport(p); } }, 'Open')),
+      item('Status slides · Google Slides', 'A fresh deck from this project: mood board, design options and notes.', el('button', { class:'btn primary', onclick(){ closePop(); makeSlides(p); } }, 'Make slides')),
+      el('div', { class:'rep-tip', text:'Tip: in Google Slides, ask Gemini to restyle or add to the deck. In Gemini or NotebookLM, add the status report and ask “Write a status update for my boss.”' }));
+  } else {
+    body.append(
+      el('div', { class:'rep-tip', text:'Connect Google Drive to keep a live status report in Google Docs and turn your progress into Google Slides.' }),
+      el('div', { class:'rep-row' }, el('button', { class:'btn primary', onclick(){ closePop(); connectDrive(); } }, icon('drive'), 'Connect Google Drive'), el('button', { class:'btn', onclick(){ closePop(); makeSlides(p).catch(() => toast('Couldn’t build the slides. Try again.', 4000)); } }, 'Download slides')));
+  }
+  popover(anchor, body);
 }
 
 /* =====================================================================
    BOOT
    ===================================================================== */
-async function loadAndStart(){
-  let saved = null;
-  try { saved = await IDB.get('planner'); } catch(e){ cacheOK = false; }
-  if(saved) applyData(saved);
-  else {
-    let old = null; try { old = await IDB.get('workspace'); } catch(e){}
-    if(old && Array.isArray(old.projects)) importOldProjects(old.projects);
-  }
-  mode = 'ready'; loaded = { days:true, project:true, tasks:true };
-  renderAll();
-  const auth = new URLSearchParams(location.search).get('auth');
-  if(auth){ history.replaceState(null, '', location.pathname); toast(auth === 'cancelled' ? 'Google sign-in was cancelled.' : 'Google sign-in didn’t finish. Try again.', 5000); }
-  resumeDrive();
-  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible') pull(); else if(localDirty) saveLocal(); });
-  setInterval(() => { if(document.visibilityState === 'visible') pull(); }, 60000);
-  window.addEventListener('beforeunload', e => { if(driveOn && (driveDirty || pushing)){ push(); e.preventDefault(); e.returnValue = ''; } });
+// Workspaces created before the rename still carry the old default title.
+const renamed = t => t === 'Design workspace' ? 'Anium.planning' : t;
+function restoreUI(){
+  let st = null; try { st = JSON.parse(LS.get('dw-ui') || 'null'); } catch(e){}
+  if(st){ if(SHOW_TABS.includes(st.tab)) ui.tab = st.tab; ui.drawer = st.drawer || null; ui.noteId = st.noteId || null; ui.sideClosed = !!st.sideClosed; }
+  ui.project = (st && W.projects.some(p => p.id === st.project)) ? st.project : W.projects[0].id;
+  // Links from the planner open a tab directly (projects.html#moodboard)
+  const h = location.hash.slice(1);
+  if(SHOW_TABS.includes(h)){ ui.tab = h; if(ui.drawer === 'info' && h !== 'moodboard') ui.drawer = null; history.replaceState(null, '', location.pathname + location.search); }
+  if(ui.drawer === 'info' && ui.tab !== 'moodboard') ui.drawer = null;
 }
-(function boot(){
-  let st = null; try { st = JSON.parse(SS.get('anium-planner:ui') || 'null'); } catch(e){}
-  const savedTab = LS.get('anium-planner:tab');
-  if(st && st.on === today()){ ui.tab = st.tab || 'day'; if(/^\d{4}-\d{2}-\d{2}$/.test(st.date || '')) ui.date = st.date; }
-  else if(savedTab) ui.tab = savedTab;
-  if(ui.tab === 'project') ui.tab = 'timeline';
-  if(!['day', 'log', 'timeline'].includes(ui.tab)) ui.tab = 'day';
-  buildShell(); renderAll();
+async function bootOwner(){
+  let cached = null;
+  try { cached = await IDB.get('workspace'); } catch(e){ cacheOK = false; }
+  W = cached && cached.projects && cached.projects.length ? cached : { v:2, title:'Anium.planning', projects:[Object.assign(blankProject('First project'), { pristine:true })] };
+  W.title = renamed(W.title);
+  W.projects.forEach(prepareProject);
+  restoreUI();
+  buildShell(); renderAll(true);
+  rescuePictures();
+  if(!cacheOK) toast('This browser blocks saving. Connect Google Drive to keep your work.', 6000);
+  if(W.projects.some(p => p._dirty)) scheduleFlush();
   window.addEventListener('pagehide', stashUI);
-  let rw = null; window.addEventListener('resize', () => { clearTimeout(rw); rw = setTimeout(() => { if(!drag) renderView(); }, 150); });
-  let lastDay = today();
-  setInterval(() => {
-    if(drag) return;
-    const t = today();
-    if(t !== lastDay){ if(ui.date === lastDay) ui.date = t; lastDay = t; scrolledFor = null; renderAll(); return; }
-    if(ui.tab === 'day' && ui.date === t) renderView();
-  }, 60000);
-  applyTheme();
-  loadAndStart();
-})();
+  document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden') stashUI(); });
+  const auth = new URLSearchParams(location.search).get('auth');
+  if(auth){
+    history.replaceState(null, '', location.pathname);
+    toast(auth === 'cancelled' ? 'Google sign-in was cancelled.' : 'Google sign-in didn’t finish. Try again.', 5000);
+  }
+  if(HAS_GOOGLE) resumeDrive();
+}
+async function bootViewer(){
+  fullMessage('Loading…', '');
+  if(!HAS_KEY){ fullMessage('This link can’t open yet', 'The app is missing its Google API key. The owner needs to finish SETUP.md.'); return; }
+  try {
+    const r = await fetch(API + '/files/' + encodeURIComponent(VIEW_ID) + '?alt=media&key=' + encodeURIComponent(CFG.apiKey));
+    if(!r.ok) throw r.status;
+    const p = JSON.parse(await r.text());
+    if(!p || !p.mods) throw 'bad';
+    W = { title: p.name, projects:[prepareProject(p)] };
+    ui.project = p.id; restoreUI();
+    buildShell(); renderAll(true);
+  } catch(e){
+    fullMessage('This project isn’t available', 'The owner may have stopped sharing it, or the link is incomplete. Ask them for a new link.');
+  }
+}
+function bootOffline(){
+  const p = EMBED.project;
+  W = { title: p.name, projects:[prepareProject(p)] };
+  ui.project = p.id; restoreUI();
+  buildShell(); renderAll(true);
+}
+applyPrefs();
+let rw = null; window.addEventListener('resize', () => { clearTimeout(rw); rw = setTimeout(() => { if(shell.root) renderHeader(); }, 150); });
+setInterval(() => { if(shell.root && !flushing) renderHeader(); }, 60000);
+if(ROLE === 'offline') bootOffline(); else if(ROLE === 'viewer') bootViewer(); else bootOwner();
 })();
