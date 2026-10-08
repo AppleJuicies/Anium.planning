@@ -2,6 +2,6 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "sharp": "^0.35.5"
+    "@vercel/oidc": "3.8.9"
   }
 }
