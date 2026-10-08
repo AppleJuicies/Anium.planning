@@ -178,7 +178,7 @@ img{max-width:100%}
 .opt-img .over button{border:0;background:rgba(15,15,15,.62);color:#fff;font-size:12px;padding:4px 9px;border-radius:6px;backdrop-filter:blur(4px)}
 .opt-img .over button:hover{background:rgba(15,15,15,.8)}
 .opt-body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:12px}
-.opt-title{border:0;background:transparent;font-size:16px;font-weight:600;padding:2px 4px;margin:0 -4px;border-radius:5px;width:calc(100% + 8px)}
+.opt-title{text-overflow:ellipsis;border:0;background:transparent;font-size:16px;font-weight:600;padding:2px 4px;margin:0 -4px;border-radius:5px;width:calc(100% + 8px)}
 .opt-title:not([readonly]):hover{background:var(--hover)}
 .opt-title:focus{outline:none;background:var(--hover)}
 .score{display:flex;align-items:center;gap:10px}
@@ -222,7 +222,7 @@ img{max-width:100%}
 .n-edit{overflow-y:auto;min-height:0}
 .n-doc{max-width:760px;margin:0 auto;padding:36px 40px 80px}
 .n-meta{font-size:12px;color:var(--faint);margin-bottom:6px;display:flex;gap:14px;flex-wrap:wrap}
-.n-title{width:100%;border:0;background:transparent;font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.2;padding:0;margin:0 0 10px;outline:none}
+.n-title{text-overflow:ellipsis;width:100%;border:0;background:transparent;font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.2;padding:0;margin:0 0 10px;outline:none}
 .n-title::placeholder{color:var(--faint)}
 .n-tools{display:flex;gap:2px;margin:0 0 10px -6px;flex-wrap:wrap;position:sticky;top:0;background:var(--bg);padding:4px 0;z-index:1}
 .n-tools button{border:0;background:transparent;height:28px;min-width:28px;padding:0 7px;border-radius:5px;color:var(--muted);font-size:13px;display:grid;place-items:center}

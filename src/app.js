@@ -906,7 +906,7 @@ const ScopeModule = {
             el('button', { text:'Remove', onclick(){ o.img = null; o.crop = null; o.marks = []; touch(o); render(); } })));
         } else if(!ro) imgBox.append(el('button', { class:'pick', onclick(){ pick(o); } }, icon('image'), 'Choose a picture'));
         else imgBox.append(el('span', { class:'faint', text:'No picture chosen' }));
-        const title = el('input', { class:'opt-title', value:o.title, placeholder:'Untitled option', 'aria-label':'Option name' });
+        const title = el('input', { class:'opt-title', value:o.title, placeholder:'Untitled option', 'aria-label':'Option name', title: o.title || null });
         title.readOnly = ro; title.addEventListener('input', () => { o.title = title.value; touch(o); });
         const rates = el('div', { class:'rates' });
         d.criteria.forEach(c => {
@@ -1000,7 +1000,7 @@ const NotesModule = {
         el('button', { class:'linkbtn show-sm', text:'← All notes', onclick(){ select(null); } }),
         el('span', { text:'Created ' + fmtDate(n.createdAt) }), el('span', { class:'n-upd', text:'Edited ' + fmtAgo(n.updatedAt) }),
         ro ? null : el('button', { class:'n-delete', text:'Delete note', async onclick(){ if(!await askConfirm('Delete “' + (n.title || 'Untitled') + '”? You can bring it back from History.', 'Delete')) return; d.notes = d.notes.filter(x => x !== n); ctx.changed(); select(null); } }));
-      const title = el('input', { class:'n-title', value:n.title, placeholder:'Untitled', 'aria-label':'Note title' }); title.readOnly = ro;
+      const title = el('input', { class:'n-title', value:n.title, placeholder:'Untitled', 'aria-label':'Note title', title: n.title || null }); title.readOnly = ro;
       const body = el('div', { class:'n-body', 'data-ph': ro ? '' : 'Write something…', html: sanitize(n.html) });
       if(!ro) body.setAttribute('contenteditable', 'true');
       const bump = () => { n.updatedAt = nowISO(); ctx.changed(); const u = meta.querySelector('.n-upd'); if(u) u.textContent = 'Edited just now'; renderList(); };
@@ -1166,7 +1166,7 @@ function renderHeader(){
   if(ui.tab === 'moodboard') right.append(el('button', { class:'btn ghost' + (ui.drawer === 'info' ? ' on' : ''), title:'Picture details', onclick(){ toggleDrawer('info'); } }, icon('info'), el('span', { class:'hide-sm', text:'Picture info' })));
   right.append(el('button', { class:'btn ghost' + (ui.drawer === 'history' ? ' on' : ''), title:'Version history', onclick(){ toggleDrawer('history'); } }, icon('clock'), el('span', { class:'hide-sm', text:'History' })));
   if(ed){
-    right.append(el('button', { class:'btn ghost', title:'Status report and slides for Google', onclick(e){ openReports(e.currentTarget, p); } }, icon('report'), el('span', { class:'hide-sm', text:'Progress' })));
+    right.append(el('button', { class:'btn ghost', title:'Status report and slides for Google', onclick(e){ openReports(e.currentTarget, p); } }, icon('report'), el('span', { class:'hide-sm', text:'Report' })));
     right.append(el('span', { class:'status-slot hide-sm' }, statusChip()));
     right.append(el('button', { class:'btn primary', onclick(){ openShare(p); } }, icon('share'), 'Share'));
   } else {
@@ -1483,7 +1483,7 @@ function planOf(p){
     g, start, day, ti, tasks, done, doing, todo,
     end: day(PLAN_DAYS - 1),
     overdue: tasks.filter(x => x.st !== 'done' && x.t.end < ti),
-    upNext: todo.filter(x => x.t.start <= ti + 7),
+    upNext: todo.filter(x => x.t.start <= ti + 7 && x.t.end >= ti),
     nextMilestone: tasks.filter(x => x.t.milestone && x.st !== 'done').sort((a, b) => a.t.start - b.t.start)[0] || null,
     pct: tasks.length ? Math.round(done.length / tasks.length * 100) : 0,
     daysLeft: ti < 0 ? PLAN_DAYS : Math.max(0, PLAN_DAYS - ti),
@@ -1537,65 +1537,171 @@ function attachmentLinks(p, list){
     return m && m.driveId ? `<a href="https://drive.google.com/file/d/${escH(m.driveId)}/view">${escH(f.name)}</a>` : escH(f.name);
   }).join(', ');
 }
+// Everything in a project that a report draws on, gathered once.
+function reportData(p){
+  const P = planOf(p);
+  const st = t => t.done ? 'done' : t.status === 'doing' ? 'doing' : 'todo';
+  const cards = (p.mods.moodboard.data && p.mods.moodboard.data.cards) || [];
+  const boardNotes = cards.filter(c => c.type === 'note' && String(c.text || '').trim());
+  const labels = cards.filter(c => c.type === 'label' && String(c.text || '').trim());
+  const sc = p.mods.scope.data || {}, criteria = sc.criteria || [], opts = scoredOptions(p);
+  const notes = ((p.mods.notes.data && p.mods.notes.data.notes) || []).slice().sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+  const history = (p.history || []).slice().sort((a, b) => String(b.t).localeCompare(String(a.t)));
+  const files = [];
+  if(P) P.g.phases.forEach(ph => {
+    (ph.files || []).forEach(f => files.push({ f, on: ph.name + ' (phase)' }));
+    (ph.tasks || []).forEach(t => (t.files || []).forEach(f => files.push({ f, on: t.name })));
+  });
+  const fileURL = f => f.kind === 'link' ? f.url : (p.files && p.files[f.id] && p.files[f.id].driveId ? 'https://drive.google.com/file/d/' + p.files[f.id].driveId + '/view' : '');
+  const picUse = id => opts.filter(x => x.o.img === id).map(x => x.o.title || 'Untitled option');
+  const milestones = P ? P.tasks.filter(x => x.t.milestone).sort((a, b) => a.t.start - b.t.start) : [];
+  const edited = [p.updatedAt].concat(TAB_IDS.map(m => p.mods[m] && p.mods[m].editedAt)).filter(Boolean).sort().pop();
+  return { P, st, cards, boardNotes, labels, pics: boardPictures(p), criteria, opts, notes, history, files, fileURL, picUse, milestones, edited };
+}
+// A colour mixed with white (for done tasks and soft backgrounds).
+const tint = (hex, a) => { const h = String(hex || '#2783DE').replace('#', ''); const n = i => Math.round(parseInt(h.slice(i, i + 2), 16) * a + 255 * (1 - a)); return 'rgb(' + n(0) + ',' + n(2) + ',' + n(4) + ')'; };
+
 async function reportHTML(p){
-  const P = planOf(p), now = new Date(), out = [];
-  const h2 = t => out.push(`<h2 style="font-size:16pt;margin-top:18pt">${escH(t)}</h2>`);
-  const li = x => `<li><b>${escH(x.t.name)}</b> <span style="color:#7D7A75">· ${escH(x.ph.name)} · ${escH(P.span(x.t))}${x.t.priority === 'h' ? ' · High priority' : ''}</span>${x.t.note ? '<br>' + escH(x.t.note).replace(/\n/g, '<br>') : ''}</li>`;
-  out.push(`<h1 style="font-size:24pt">${escH(p.name || 'Untitled project')} — Status report</h1>`);
-  out.push(`<p style="color:#7D7A75">Updated ${escH(fmtLong(now))} at ${escH(now.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }))}. This document is kept up to date automatically by Anium.planning. Use it with Gemini or NotebookLM to write status updates and presentations.</p>`);
+  const D = reportData(p), P = D.P, now = new Date(), out = [];
+  const muted = 'color:#7D7A75';
+  const cell = 'border:1px solid #D9D8D5;padding:5px 7px;vertical-align:top;font-size:9.5pt';
+  const head = cell + ';background:#F4F3F1;font-weight:bold;text-align:left';
+  const h2 = t => out.push(`<h2 style="font-size:16pt;margin:22pt 0 6pt">${escH(t)}</h2>`);
+  const h3 = (t, color, extra) => out.push(`<h3 style="font-size:12.5pt;margin:14pt 0 4pt;color:${color || '#2C2C2B'}">${escH(t)}${extra ? ` <span style="${muted};font-weight:normal;font-size:10.5pt">${extra}</span>` : ''}</h3>`);
+  const text = s => escH(s || '').replace(/\n/g, '<br>');
+  const table = (heads, rows) => '<table style="border-collapse:collapse;width:100%">'
+    + '<tr>' + heads.map(h => `<th style="${head}">${h}</th>`).join('') + '</tr>'
+    + rows.map(r => '<tr>' + r.map(c => `<td style="${cell}">${c == null ? '' : c}</td>`).join('') + '</tr>').join('') + '</table>';
+  const when = iso => iso ? escH(fmtDate(iso)) : '';
+  const files = list => attachmentLinks(p, list);
+  const taskItem = x => {
+    const t = x.t, bits = [escH(x.ph.name), escH(P.span(t)), PRIORITY_LABEL[t.priority] ? PRIORITY_LABEL[t.priority] + ' priority' : '',
+      t.startedAt ? 'started ' + when(t.startedAt) : '', t.doneAt && t.done ? 'finished ' + when(t.doneAt) : ''].filter(Boolean);
+    return `<li style="margin-bottom:6pt"><b>${escH(t.name)}</b>${t.milestone ? ' ◆' : ''} <span style="${muted}">· ${bits.join(' · ')}</span>`
+      + (t.note ? `<br>${text(t.note)}` : '') + ((t.files || []).length ? `<br><span style="${muted}">Attachments:</span> ${files(t.files)}` : '') + '</li>';
+  };
+  const list = (items, empty) => out.push(items.length ? '<ul>' + items.map(taskItem).join('') + '</ul>' : `<p style="${muted}">${empty}</p>`);
+
+  // Title and facts
+  out.push(`<h1 style="font-size:24pt;margin-bottom:4pt">${escH(p.icon ? p.icon + ' ' : '')}${escH(p.name || 'Untitled project')} — Status report</h1>`);
+  out.push(`<p style="${muted}">Updated ${escH(fmtLong(now))} at ${escH(now.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }))}. Project started ${when(p.createdAt)}${D.edited ? ', last changed ' + when(D.edited) : ''}. This document is rewritten automatically by Anium.planning from everything in the project: schedule, design options, mood board and notes. Use it with Gemini or NotebookLM to write status updates and presentations.</p>`);
+  const lead = D.opts.find(x => x.avg != null);
+  const facts = [
+    P ? ['Schedule', `${fmtD(P.start)} – ${fmtD(P.end)} · ${P.ti < 0 ? 'starts in ' + plural(-P.ti, 'day') : P.ti >= PLAN_DAYS ? 'ended' : 'day ' + (P.ti + 1) + ' of ' + PLAN_DAYS + ', ' + plural(P.daysLeft, 'day') + ' left'}`] : ['Schedule', 'No schedule yet'],
+    P ? ['Tasks', `${P.done.length} of ${P.tasks.length} done (${P.pct}%) · ${P.doing.length} in progress · ${P.todo.length} to do`] : null,
+    P ? ['On track?', P.overdue.length ? `<b style="color:#C24A3E">${plural(P.overdue.length, 'task')} past the planned end date</b>` : 'Yes, no task is past its end date'] : null,
+    P && P.nextMilestone ? ['Next milestone', `${escH(P.nextMilestone.t.name)} — ${fmtD(P.day(P.nextMilestone.t.start))}`] : null,
+    ['Design options', D.opts.length ? `${plural(D.opts.length, 'option')} rated on ${D.criteria.length} ${D.criteria.length === 1 ? 'criterion' : 'criteria'}${lead ? ` · highest: <b>${escH(lead.o.title || 'Untitled option')}</b> (${lead.avg.toFixed(1)} / 5)` : ''}` : 'None yet'],
+    ['Mood board', `${plural(D.pics.length, 'picture')} · ${plural(D.boardNotes.length, 'note')} · ${plural(D.labels.length, 'label')}`],
+    ['Notes', D.notes.length ? `${plural(D.notes.length, 'note')} · last edited ${when(D.notes[0].updatedAt)}` : 'None yet'],
+    ['Files and links', D.files.length ? plural(D.files.length, 'attachment') : 'None yet']
+  ].filter(Boolean);
+  h2('At a glance');
+  out.push('<table style="border-collapse:collapse;width:100%">' + facts.map(([k, v]) => `<tr><td style="${head};width:26%">${k}</td><td style="${cell}">${v}</td></tr>`).join('') + '</table>');
+  const recent = D.history.filter(h => Date.now() - new Date(h.t).getTime() < 7 * 86400000).slice(0, 8);
+  if(recent.length){
+    h3('What changed in the last 7 days');
+    out.push('<ul>' + recent.map(h => `<li>${escH(MODULES[h.mod] ? MODULES[h.mod].label : h.mod)}: ${escH(h.summary)} <span style="${muted}">· ${when(h.t)}</span></li>`).join('') + '</ul>');
+  }
+
+  // Schedule
   if(P){
-    h2('Summary');
-    out.push('<ul>' + [
-      `Plan: ${fmtD(P.start)} – ${fmtD(P.end)} (${P.daysLeft} day${P.daysLeft === 1 ? '' : 's'} left)`,
-      `Progress: ${P.done.length} of ${P.tasks.length} tasks done (${P.pct}%), ${P.doing.length} in progress`,
-      P.nextMilestone ? `Next milestone: ${escH(P.nextMilestone.t.name)} on ${fmtD(P.day(P.nextMilestone.t.start))}` : '',
-      P.overdue.length ? `Behind schedule: ${P.overdue.length} task${P.overdue.length === 1 ? '' : 's'} past their end date` : 'On schedule: no tasks are past their end date'
-    ].filter(Boolean).map(s => `<li>${s}</li>`).join('') + '</ul>');
-    h2('In progress');
-    out.push(P.doing.length ? '<ul>' + P.doing.map(li).join('') + '</ul>' : '<p>Nothing is marked in progress.</p>');
-    h2('Coming up (next 7 days)');
-    out.push(P.upNext.length ? '<ul>' + P.upNext.map(li).join('') + '</ul>' : '<p>Nothing scheduled to start in the next week.</p>');
-    if(P.overdue.length){ h2('Needs attention'); out.push('<ul>' + P.overdue.map(li).join('') + '</ul>'); }
-    h2('Completed');
-    out.push(P.done.length ? '<ul>' + P.done.map(x => `<li>${escH(x.t.name)} <span style="color:#7D7A75">· ${escH(x.ph.name)}${x.t.doneAt ? ' · done ' + escH(fmtD(new Date(x.t.doneAt))) : ''}</span></li>`).join('') + '</ul>' : '<p>No tasks completed yet.</p>');
+    h2('Two-week timeline');
+    const dayHead = Array.from({ length: PLAN_DAYS }, (_, i) => { const d = P.day(i); return `<th style="${head};text-align:center;font-size:8pt;padding:3px 1px;${i === P.ti ? 'background:#DCEBFA;color:#1F6FB8' : ''}">${'SMTWTFS'[d.getDay()]}<br>${d.getDate()}</th>`; }).join('');
+    const rows = [];
+    P.g.phases.forEach(ph => {
+      const tasks = ph.tasks || [];
+      rows.push(`<tr><td colspan="${PLAN_DAYS + 1}" style="${cell};background:${tint(ph.color, 0.14)};font-weight:bold;color:${escH(ph.color || '#2C2C2B')}">${escH(ph.name)} <span style="${muted};font-weight:normal">· ${tasks.filter(t => t.done).length}/${tasks.length} done</span></td></tr>`);
+      tasks.forEach(t => {
+        const cells = Array.from({ length: PLAN_DAYS }, (_, i) => {
+          const on = i >= t.start && i <= t.end, bg = on ? (t.done ? tint(ph.color, 0.35) : tint(ph.color, 0.85)) : (i === P.ti ? '#F2F7FD' : '#FFFFFF');
+          return `<td style="border:1px solid #E6E5E3;padding:3px 0;background:${bg};text-align:center;font-size:8pt;color:#FFFFFF">${on && t.milestone ? '◆' : '&nbsp;'}</td>`;
+        }).join('');
+        rows.push(`<tr><td style="${cell};font-size:8.5pt">${escH(t.name)}${t.done ? ' ✓' : t.status === 'doing' ? ' ▸' : ''}</td>${cells}</tr>`);
+      });
+    });
+    out.push(`<table style="border-collapse:collapse;width:100%"><tr><th style="${head};width:30%">Task</th>${dayHead}</tr>${rows.join('')}</table>`);
+    out.push(`<p style="${muted};font-size:9pt">✓ done · ▸ in progress · ◆ milestone · today is highlighted.</p>`);
+    h2('In progress'); list(P.doing, 'Nothing is marked in progress.');
+    h2('Coming up (next 7 days)'); list(P.upNext, 'Nothing is scheduled to start in the next week.');
+    if(P.overdue.length){ h2('Needs attention'); list(P.overdue, ''); }
+    h2('Completed'); list(P.done, 'No tasks completed yet.');
     h2('Plan by phase');
     P.g.phases.forEach(ph => {
       const tasks = ph.tasks || [], dn = tasks.filter(t => t.done).length;
-      out.push(`<h3 style="font-size:13pt;color:${escH(ph.color || '#2C2C2B')}">${escH(ph.name)} <span style="color:#7D7A75;font-weight:normal">— ${dn}/${tasks.length} done${tasks.length ? ', ' + escH(fmtD(P.day(Math.min(...tasks.map(t => t.start))))) + ' – ' + escH(fmtD(P.day(Math.max(...tasks.map(t => t.end))))) : ''}</span></h3>`);
-      if(ph.note) out.push(`<p>${escH(ph.note).replace(/\n/g, '<br>')}</p>`);
-      if((ph.files || []).length) out.push(`<p>Attachments: ${attachmentLinks(p, ph.files)}</p>`);
-      if(tasks.length){
-        out.push('<table style="border-collapse:collapse;width:100%"><tr>' + ['Task', 'Status', 'Dates', 'Priority', 'Details', 'Attachments'].map(c => `<th style="border:1px solid #ccc;padding:4px;background:#f3f3f3;text-align:left">${c}</th>`).join('') + '</tr>' +
-          tasks.map(t => '<tr>' + [escH(t.name) + (t.milestone ? ' (milestone)' : ''), STATUS_LABEL[t.done ? 'done' : t.status === 'doing' ? 'doing' : 'todo'], escH(P.span(t)), PRIORITY_LABEL[t.priority] || '', escH(t.note || '').replace(/\n/g, '<br>'), attachmentLinks(p, t.files)].map(v => `<td style="border:1px solid #ccc;padding:4px;vertical-align:top">${v}</td>`).join('') + '</tr>').join('') + '</table>');
-      }
+      h3(ph.name, ph.color, `${dn}/${tasks.length} done${tasks.length ? ' (' + Math.round(dn / tasks.length * 100) + '%) · ' + escH(fmtD(P.day(Math.min(...tasks.map(t => t.start))))) + ' – ' + escH(fmtD(P.day(Math.max(...tasks.map(t => t.end))))) : ''}`);
+      if(ph.note) out.push(`<p>${text(ph.note)}</p>`);
+      if((ph.files || []).length) out.push(`<p><span style="${muted}">Phase attachments:</span> ${files(ph.files)}</p>`);
+      if(tasks.length) out.push(table(['Task', 'Status', 'Dates', 'Days', 'Priority', 'Started', 'Finished', 'Details', 'Attachments'],
+        tasks.map(t => [escH(t.name) + (t.milestone ? ' ◆' : ''), STATUS_LABEL[D.st(t)], escH(P.span(t)), String(t.end - t.start + 1), PRIORITY_LABEL[t.priority] || '',
+          when(t.startedAt), t.done ? when(t.doneAt) : '', text(t.note), files(t.files)])));
+      else out.push(`<p style="${muted}">No tasks in this phase.</p>`);
     });
-  } else {
-    h2('Schedule'); out.push('<p>No schedule yet. Open the Gantt tab to start one.</p>');
-  }
-  const opts = scoredOptions(p);
-  if(opts.length){
+    if(D.milestones.length){
+      h2('Milestones');
+      out.push(table(['Milestone', 'Date', 'Phase', 'Status'], D.milestones.map(x => [escH(x.t.name), escH(fmtD(P.day(x.t.start))), escH(x.ph.name), STATUS_LABEL[D.st(x.t)]])));
+    }
+  } else { h2('Schedule'); out.push(`<p style="${muted}">No schedule yet. Open the Gantt tab to start one.</p>`); }
+
+  // Design options
+  if(D.opts.length){
     h2('Design options (Narrow scope)');
-    out.push('<ol>' + opts.map(({ o, avg }) => `<li><b>${escH(o.title || 'Untitled option')}</b>${avg != null ? ` — average rating ${avg.toFixed(1)} / 5` : ''}${o.notes ? '<br>' + escH(o.notes).replace(/\n/g, '<br>') : ''}</li>`).join('') + '</ol>');
+    out.push(`<p>Each option is rated 1 to 5 on ${D.criteria.map(c => escH(c.name || 'Untitled')).join(', ') || 'no criteria yet'}. Higher is better.</p>`);
+    out.push(table(['#', 'Option'].concat(D.criteria.map(c => escH(c.name || 'Untitled')), ['Average']),
+      D.opts.map(({ o, avg }, i) => [String(i + 1), `<b>${escH(o.title || 'Untitled option')}</b>`].concat(D.criteria.map(c => o.ratings && o.ratings[c.id] ? o.ratings[c.id] + ' / 5' : '–'), [avg != null ? `<b>${avg.toFixed(1)}</b>` : 'Not rated']))));
+    for(const [i, { o, avg }] of D.opts.entries()){
+      h3((i + 1) + '. ' + (o.title || 'Untitled option'), null, (avg != null ? avg.toFixed(1) + ' / 5' : 'not rated yet') + (i === 0 && avg != null && D.opts.length > 1 ? ' · highest score' : '') + (o.updatedAt ? ' · edited ' + when(o.updatedAt) : ''));
+      const im = o.img && p.images[o.img], th = im && im.src ? await thumbnail(im.src, 420) : null;
+      if(th) out.push(`<p><img src="${th.data}" width="${th.w}" height="${th.h}" alt="${escH(o.title || 'Option picture')}"></p>`);
+      out.push(o.notes ? `<p>${text(o.notes)}</p>` : `<p style="${muted}">No notes on this option.</p>`);
+    }
   }
-  const pics = boardPictures(p);
-  if(pics.length){
+
+  // Mood board
+  if(D.pics.length || D.boardNotes.length || D.labels.length){
     h2('Mood board');
-    out.push(`<p>${pics.length} picture${pics.length === 1 ? '' : 's'} on the board.</p>`);
-    const thumbs = await Promise.all(pics.slice(0, 12).map(im => thumbnail(im.src, 360)));
-    pics.slice(0, 12).forEach((im, i) => {
-      const t = thumbs[i], link = im.driveId ? `https://drive.google.com/file/d/${im.driveId}/view` : im.url;
-      if(t) out.push(`<p><img src="${t.data}" width="${t.w}" height="${t.h}" alt="${escH(im.caption || 'Mood board picture')}"></p>`);
-      const cap = [im.caption ? escH(im.caption) : '', link ? `<a href="${escH(link)}">Open picture</a>` : ''].filter(Boolean).join(' · ');
-      if(cap) out.push(`<p style="color:#7D7A75">${cap}</p>`);
-    });
+    out.push(`<p>${plural(D.pics.length, 'picture')}, ${plural(D.boardNotes.length, 'note')} and ${plural(D.labels.length, 'label')} on the board.</p>`);
+    if(D.labels.length){ h3('Labels'); out.push('<ul>' + D.labels.map(c => `<li>${escH(c.text)}</li>`).join('') + '</ul>'); }
+    if(D.boardNotes.length){ h3('Notes on the board'); out.push('<ul>' + D.boardNotes.map(c => `<li>${text(c.text)}</li>`).join('') + '</ul>'); }
+    if(D.pics.length){
+      h3('Pictures');
+      const shown = D.pics.slice(0, 16), thumbs = await Promise.all(shown.map(im => thumbnail(im.src, 320)));
+      shown.forEach((im, i) => {
+        const t = thumbs[i], link = im.driveId ? `https://drive.google.com/file/d/${im.driveId}/view` : im.url, use = D.picUse(im.id);
+        if(t) out.push(`<p style="margin-bottom:2pt"><img src="${t.data}" width="${t.w}" height="${t.h}" alt="${escH(im.caption || 'Mood board picture')}"></p>`);
+        const bits = [im.caption ? `<b>${escH(im.caption)}</b>` : '', im.addedAt ? 'added ' + when(im.addedAt) : '', im.url ? 'from ' + escH(host(im.url)) : '',
+          use.length ? 'picked for ' + use.map(escH).join(', ') : '', link ? `<a href="${escH(link)}">open picture</a>` : ''].filter(Boolean);
+        if(bits.length) out.push(`<p style="${muted};margin-top:0">${bits.join(' · ')}</p>`);
+      });
+      if(D.pics.length > shown.length) out.push(`<p style="${muted}">${plural(D.pics.length - shown.length, 'more picture')} on the board.</p>`);
+    }
   }
-  const notes = (p.mods.notes.data && p.mods.notes.data.notes) || [];
-  if(notes.length){
+
+  // Notes
+  if(D.notes.length){
     h2('Notes');
-    notes.forEach(n => { out.push(`<h3 style="font-size:13pt">${escH(n.title || 'Untitled note')}</h3>`); out.push(noteToHTML(n.html)); });
+    D.notes.forEach(n => { h3(n.title || 'Untitled note', null, 'created ' + when(n.createdAt) + (n.updatedAt && n.updatedAt !== n.createdAt ? ' · edited ' + when(n.updatedAt) : '')); out.push(noteToHTML(n.html) || `<p style="${muted}">Empty note.</p>`); });
   }
-  return '<!doctype html><html><head><meta charset="utf-8"></head><body style="font-family:Arial,sans-serif">' + out.join('\n') + '</body></html>';
+
+  // Files and links
+  if(D.files.length){
+    h2('Files and links');
+    const dated = D.files.some(x => x.f.addedAt);
+    out.push(table(['Name', 'Attached to', 'Kind'].concat(dated ? ['Added'] : []), D.files.map(({ f, on }) => {
+      const u = D.fileURL(f);
+      return [u ? `<a href="${escH(u)}">${escH(f.name)}</a>` : escH(f.name), escH(on), f.kind === 'link' ? 'Link' : 'File' + (f.size ? ' · ' + Math.max(1, Math.round(f.size / 1024)) + ' KB' : '')].concat(dated ? [when(f.addedAt)] : []);
+    })));
+  }
+
+  // Activity
+  if(D.history.length){
+    h2('Recent activity');
+    out.push(table(['When', 'Tab', 'What changed'], D.history.slice(0, 25).map(h => [when(h.t), escH(MODULES[h.mod] ? MODULES[h.mod].label : h.mod), escH(h.summary)])));
+  }
+  out.push(`<p style="${muted};margin-top:24pt;font-size:9pt">Made by Anium.planning · <a href="${escH(location.origin)}/">${escH(location.host)}</a></p>`);
+  return '<!doctype html><html><head><meta charset="utf-8"></head><body style="font-family:Arial,sans-serif;font-size:10.5pt;color:#2C2C2B">' + out.join('\n') + '</body></html>';
 }
+
 const reportTimers = {};
 function scheduleReport(p, ms){
   if(!driveOn || ROLE !== 'owner') return;
@@ -1648,121 +1754,217 @@ function loadPptx(){
     document.head.append(s);
   }));
 }
+// A note's text with its paragraphs and list items kept apart ("first · second · third").
+function noteLines(html){
+  const d = document.createElement('div'); d.innerHTML = sanitize(String(html || '').replace(/<br\s*\/?>/gi, '\n'));
+  d.querySelectorAll('p,div,li,h1,h2,h3,blockquote,pre').forEach(b => b.append('\n'));
+  return (d.textContent || '').split('\n').map(x => x.replace(/\s+/g, ' ').trim()).filter(Boolean).join('  ·  ');
+}
 async function buildDeck(p){
   const PptxGenJS = await loadPptx();
   if(ROLE === 'owner' && driveOn){ try { await ensureImages(p); } catch(e){} }
-  const P = planOf(p), today = new Date();
+  const D = reportData(p), P = D.P, today = new Date();
   const pptx = new PptxGenJS(); pptx.layout = 'LAYOUT_WIDE'; pptx.title = (p.name || 'Project') + ' — Status update';
-  const C = { ink:'2C2C2B', muted:'7D7A75', line:'E6E5E3', soft:'F4F3F1', acc:'2783DE', ok:'46A171', warn:'D5803B', bad:'E56458' }, F = 'Arial', W = 13.333;
-  const hex = c => String(c || '#2783DE').replace('#', '').slice(0, 6).toUpperCase();
+  const C = { ink:'2C2C2B', muted:'7D7A75', line:'E6E5E3', soft:'F4F3F1', acc:'2783DE', ok:'46A171', warn:'D5803B', bad:'C24A3E' }, F = 'Arial', W = 13.333;
+  const hex = c => /^#?[0-9a-f]{6}$/i.test(String(c || '')) ? String(c).replace('#', '').toUpperCase() : C.acc;
+  // Text is trimmed to what fits its box (Arial widths, estimated on the generous side), so nothing ever
+  // runs into the next line or the next element. Boxes have no inner margin, so the width is all usable.
+  const fit = (str, wIn, pt, lines, bold) => {
+    str = String(str == null ? '' : str).replace(/\s+/g, ' ').trim();
+    const per = Math.max(3, Math.floor(wIn * 72 / (pt * (bold ? 0.58 : 0.53))));
+    const max = Math.floor(per * (lines || 1) * ((lines || 1) > 1 ? 0.88 : 1));
+    return str.length > max ? str.slice(0, Math.max(1, max - 1)).trimEnd() + '…' : str;
+  };
+  const T = (s, str, o) => {
+    const lines = o.lines || 1, h = Math.max(o.h || 0, lines * o.fontSize * 1.3 / 72);
+    const opts = Object.assign({ fontFace:F, color:C.ink, margin:0, valign:'top' }, o, { h });
+    delete opts.lines;
+    s.addText(fit(str, o.w, o.fontSize, lines, o.bold), opts);
+  };
+  const name = p.name || 'Project';
   pptx.defineSlideMaster({ title:'BODY', background:{ color:'FFFFFF' },
-    objects:[ { rect:{ x:0, y:7.12, w:W, h:0.38, fill:{ color:C.soft } } }, { text:{ text:(p.name || 'Project') + '  ·  Status update ' + fmtD(today), options:{ x:0.5, y:7.16, w:9, h:0.3, fontSize:9, color:C.muted, fontFace:F } } } ],
-    slideNumber:{ x:12.2, y:7.16, w:0.7, h:0.3, fontSize:9, color:C.muted, fontFace:F } });
-  const head = (s, t, sub) => { s.addText(t, { x:0.5, y:0.32, w:W - 1, h:0.62, fontSize:26, bold:true, color:C.ink, fontFace:F }); if(sub) s.addText(sub, { x:0.5, y:0.92, w:W - 1, h:0.36, fontSize:13, color:C.muted, fontFace:F }); };
+    objects:[ { rect:{ x:0, y:7.12, w:W, h:0.38, fill:{ color:C.soft } } },
+      { text:{ text: fit(name, 7, 9) + '  ·  Status update ' + fmtD(today), options:{ x:0.5, y:7.2, w:9, h:0.22, fontSize:9, color:C.muted, fontFace:F, margin:0 } } } ],
+    slideNumber:{ x:12.3, y:7.2, w:0.55, h:0.22, fontSize:9, color:C.muted, fontFace:F } });
+  const head = (s, t, sub) => { T(s, t, { x:0.5, y:0.35, w:W - 1, fontSize:26, bold:true }); if(sub) T(s, sub, { x:0.5, y:0.92, w:W - 1, fontSize:13, color:C.muted }); };
   const dot = (s, x, y, color) => s.addShape(pptx.ShapeType.ellipse, { x, y, w:0.14, h:0.14, fill:{ color:hex(color) }, line:{ color:hex(color) } });
-  // A list of tasks, continuing onto more slides when long
+  const body = () => pptx.addSlide({ masterName:'BODY' });
+  // A list of tasks, continuing onto more slides when long. Each row: name and details on one line, notes on two.
   const taskSlides = (titleText, items, empty, extra) => {
-    const per = 6;
+    const per = 5;   // rows are 1.1in apart: name, details line, two lines of notes
     for(let i = 0; i < Math.max(1, items.length); i += per){
-      const s = pptx.addSlide({ masterName:'BODY' });
-      head(s, titleText + (i ? ' (continued)' : ''), items.length ? items.length + ' task' + (items.length === 1 ? '' : 's') : null);
-      if(!items.length){ s.addText(empty, { x:0.5, y:1.6, w:W - 1, h:0.5, fontSize:16, color:C.muted, fontFace:F }); return; }
+      const s = body();
+      head(s, titleText + (i ? ' (continued)' : ''), items.length ? plural(items.length, 'task') : null);
+      if(!items.length){ T(s, empty, { x:0.5, y:1.6, w:W - 1, fontSize:16, color:C.muted }); return; }
       items.slice(i, i + per).forEach((x, k) => {
-        const y = 1.55 + k * 0.9;
-        dot(s, 0.55, y + 0.12, x.ph.color);
-        s.addText(x.t.name + (x.t.milestone ? '  ◆' : ''), { x:0.85, y, w:7.6, h:0.36, fontSize:16, bold:true, color:C.ink, fontFace:F });
-        s.addText([x.ph.name, P.span(x.t), extra ? extra(x) : (x.t.priority === 'h' ? 'High priority' : '')].filter(Boolean).join('   ·   '), { x:8.6, y, w:4.2, h:0.36, fontSize:11, color:C.muted, align:'right', fontFace:F });
-        if(x.t.note) s.addText(x.t.note.replace(/\s+/g, ' ').slice(0, 180) + (x.t.note.length > 180 ? '…' : ''), { x:0.85, y:y + 0.36, w:W - 1.5, h:0.4, fontSize:12, color:C.muted, fontFace:F });
+        const y = 1.45 + k * 1.1, t = x.t;
+        dot(s, 0.55, y + 0.08, x.ph.color);
+        T(s, t.name + (t.milestone ? '  ◆' : ''), { x:0.85, y, w:W - 1.35, fontSize:16, bold:true });
+        T(s, [P.span(t), x.ph.name, extra ? extra(x) : (PRIORITY_LABEL[t.priority] ? PRIORITY_LABEL[t.priority] + ' priority' : ''), t.startedAt && !t.done ? 'started ' + fmtD(new Date(t.startedAt)) : ''].filter(Boolean).join('  ·  '), { x:0.85, y:y + 0.33, w:W - 1.35, fontSize:11.5, color:C.acc });
+        const detail = [t.note, (t.files || []).length ? plural(t.files.length, 'attachment') + ': ' + t.files.map(f => f.name).join(', ') : ''].filter(Boolean).join('  ·  ');
+        if(detail) T(s, detail, { x:0.85, y:y + 0.58, w:W - 1.35, fontSize:12, color:C.muted, lines:2 });
       });
     }
   };
+
   // 1. Title
   let s = pptx.addSlide();
   s.addShape(pptx.ShapeType.rect, { x:0, y:0, w:0.2, h:7.5, fill:{ color:C.acc }, line:{ color:C.acc } });
-  s.addText(p.name || 'Project', { x:0.9, y:2.2, w:11.6, h:1.3, fontSize:44, bold:true, color:C.ink, fontFace:F });
-  s.addText('Status update · ' + fmtLong(today), { x:0.9, y:3.5, w:11.6, h:0.6, fontSize:20, color:C.muted, fontFace:F });
-  if(P) s.addText(`2-week plan: ${fmtD(P.start)} – ${fmtD(P.end)}   ·   ${P.pct}% complete   ·   ${P.daysLeft} day${P.daysLeft === 1 ? '' : 's'} left`, { x:0.9, y:4.2, w:11.6, h:0.5, fontSize:14, color:C.muted, fontFace:F });
+  T(s, name, { x:0.9, y:1.9, w:11.6, fontSize:40, bold:true, lines:2 });
+  T(s, 'Status update · ' + fmtLong(today), { x:0.9, y:3.6, w:11.6, fontSize:20, color:C.muted });
+  const lead = D.opts.find(x => x.avg != null);
+  T(s, [P ? `2-week plan ${fmtD(P.start)} – ${fmtD(P.end)}` : '', P ? P.pct + '% complete' : '', P ? plural(P.daysLeft, 'day') + ' left' : '',
+    D.opts.length ? plural(D.opts.length, 'design option') : '', D.pics.length ? plural(D.pics.length, 'mood board picture') : '', D.notes.length ? plural(D.notes.length, 'note') : ''].filter(Boolean).join('   ·   '),
+    { x:0.9, y:4.2, w:11.6, fontSize:14, color:C.muted, lines:2 });
+
   if(P){
     // 2. At a glance
-    s = pptx.addSlide({ masterName:'BODY' }); head(s, 'At a glance', fmtD(P.start) + ' – ' + fmtD(P.end));
+    s = body(); head(s, 'At a glance', fmtD(P.start) + ' – ' + fmtD(P.end));
     [[P.pct + '%', 'Complete', C.warn], [P.done.length + ' / ' + P.tasks.length, 'Tasks done', C.ok], [String(P.doing.length), 'In progress', C.acc], [String(P.daysLeft), 'Days left', C.ink]].forEach(([v, l, c], i) => {
       const x = 0.5 + i * 3.1;
-      s.addShape(pptx.ShapeType.roundRect, { x, y:1.6, w:2.9, h:1.7, fill:{ color:C.soft }, line:{ color:C.line }, rectRadius:0.12 });
-      s.addText(v, { x, y:1.8, w:2.9, h:0.85, fontSize:40, bold:true, color:c, align:'center', fontFace:F });
-      s.addText(l.toUpperCase(), { x, y:2.65, w:2.9, h:0.4, fontSize:11, color:C.muted, align:'center', charSpacing:2, fontFace:F });
+      s.addShape(pptx.ShapeType.roundRect, { x, y:1.5, w:2.9, h:1.6, fill:{ color:C.soft }, line:{ color:C.line }, rectRadius:0.12 });
+      T(s, v, { x, y:1.72, w:2.9, fontSize:36, bold:true, color:c, align:'center' });
+      T(s, l.toUpperCase(), { x, y:2.55, w:2.9, fontSize:11, color:C.muted, align:'center', charSpacing:2 });
     });
-    s.addShape(pptx.ShapeType.roundRect, { x:0.5, y:3.75, w:12.3, h:0.24, fill:{ color:C.soft }, line:{ color:C.line }, rectRadius:0.1 });
-    if(P.pct) s.addShape(pptx.ShapeType.roundRect, { x:0.5, y:3.75, w:Math.max(0.24, 12.3 * P.pct / 100), h:0.24, fill:{ color:C.ok }, line:{ color:C.ok }, rectRadius:0.1 });
-    const bullets = [
-      P.nextMilestone ? `Next milestone: ${P.nextMilestone.t.name} — ${fmtD(P.day(P.nextMilestone.t.start))}` : null,
-      P.overdue.length ? `${P.overdue.length} task${P.overdue.length === 1 ? ' is' : 's are'} past the planned end date` : 'On schedule — nothing is past its end date',
-      P.upNext.length ? `${P.upNext.length} task${P.upNext.length === 1 ? '' : 's'} starting in the next 7 days` : null
-    ].filter(Boolean);
-    s.addText(bullets.map(t => ({ text:t, options:{ bullet:true } })), { x:0.5, y:4.3, w:12.3, h:2.4, fontSize:16, color:C.ink, fontFace:F, valign:'top', paraSpaceAfter:8 });
+    s.addShape(pptx.ShapeType.roundRect, { x:0.5, y:3.4, w:12.3, h:0.22, fill:{ color:C.soft }, line:{ color:C.line }, rectRadius:0.1 });
+    if(P.pct) s.addShape(pptx.ShapeType.roundRect, { x:0.5, y:3.4, w:Math.max(0.22, 12.3 * P.pct / 100), h:0.22, fill:{ color:C.ok }, line:{ color:C.ok }, rectRadius:0.1 });
+    [P.nextMilestone ? `Next milestone: ${P.nextMilestone.t.name} — ${fmtD(P.day(P.nextMilestone.t.start))}` : null,
+      P.overdue.length ? `${plural(P.overdue.length, 'task')} past the planned end date: ${P.overdue.map(x => x.t.name).join(', ')}` : 'On schedule — nothing is past its end date',
+      P.doing.length ? `In progress: ${P.doing.map(x => x.t.name).join(', ')}` : null,
+      P.upNext.length ? `Starting in the next 7 days: ${P.upNext.map(x => x.t.name).join(', ')}` : null,
+      lead ? `Leading design option: ${lead.o.title || 'Untitled option'} (${lead.avg.toFixed(1)} / 5)` : null
+    ].filter(Boolean).slice(0, 5).forEach((b, i) => {
+      dot(s, 0.55, 3.98 + i * 0.6, C.acc);
+      T(s, b, { x:0.85, y:3.9 + i * 0.6, w:11.95, fontSize:15 });
+    });
+
     // 3. Phases
-    s = pptx.addSlide({ masterName:'BODY' }); head(s, 'Progress by phase');
-    const phases = P.g.phases.slice(0, 8), rowH = Math.min(0.68, 5.2 / Math.max(1, phases.length));
+    s = body(); head(s, 'Progress by phase', plural(P.g.phases.length, 'phase'));
+    const phases = P.g.phases.slice(0, 9), rowH = Math.min(0.62, 5.3 / Math.max(1, phases.length));
     phases.forEach((ph, i) => {
       const tasks = ph.tasks || [], dn = tasks.filter(t => t.done).length, y = 1.5 + i * rowH, ratio = tasks.length ? dn / tasks.length : 0;
-      dot(s, 0.55, y + 0.14, ph.color);
-      s.addText(ph.name, { x:0.85, y, w:4.3, h:0.4, fontSize:15, bold:true, color:C.ink, fontFace:F });
-      s.addShape(pptx.ShapeType.roundRect, { x:5.3, y:y + 0.1, w:5, h:0.2, fill:{ color:C.soft }, line:{ color:C.line }, rectRadius:0.08 });
-      if(ratio) s.addShape(pptx.ShapeType.roundRect, { x:5.3, y:y + 0.1, w:Math.max(0.2, 5 * ratio), h:0.2, fill:{ color:hex(ph.color) }, line:{ color:hex(ph.color) }, rectRadius:0.08 });
+      dot(s, 0.55, y + 0.08, ph.color);
+      T(s, ph.name, { x:0.85, y, w:4.2, fontSize:15, bold:true, lines: rowH >= 0.6 ? 2 : 1 });
+      s.addShape(pptx.ShapeType.roundRect, { x:5.3, y:y + 0.06, w:4.8, h:0.18, fill:{ color:C.soft }, line:{ color:C.line }, rectRadius:0.08 });
+      if(ratio) s.addShape(pptx.ShapeType.roundRect, { x:5.3, y:y + 0.06, w:Math.max(0.18, 4.8 * ratio), h:0.18, fill:{ color:hex(ph.color) }, line:{ color:hex(ph.color) }, rectRadius:0.08 });
       const sp = tasks.length ? fmtD(P.day(Math.min(...tasks.map(t => t.start)))) + ' – ' + fmtD(P.day(Math.max(...tasks.map(t => t.end)))) : 'No tasks';
-      s.addText(`${dn}/${tasks.length}   ·   ${sp}`, { x:10.4, y, w:2.45, h:0.4, fontSize:11, color:C.muted, align:'right', fontFace:F });
+      T(s, `${dn}/${tasks.length} done  ·  ${sp}`, { x:10.3, y:y + 0.02, w:2.55, fontSize:11, color:C.muted, align:'right' });
     });
+
     // 4. Timeline
-    s = pptx.addSlide({ masterName:'BODY' }); head(s, 'Timeline');
+    s = body(); head(s, 'Timeline', fmtD(P.start) + ' – ' + fmtD(P.end));
     const rows = [];
     P.g.phases.forEach(ph => { rows.push({ ph }); (ph.tasks || []).forEach(t => rows.push({ ph, t })); });
-    const showTasks = rows.length <= 20, list = showTasks ? rows : rows.filter(r => !r.t);
-    const gx = 3.6, gw = W - 0.5 - gx, dw = gw / PLAN_DAYS, gy = 1.75, rh = Math.min(0.32, 4.9 / Math.max(1, list.length));
+    const showTasks = rows.length <= 22, list = showTasks ? rows : rows.filter(r => !r.t);
+    const gx = 3.7, gw = W - 0.5 - gx, dw = gw / PLAN_DAYS, gy = 1.75, rh = Math.min(0.32, 4.95 / Math.max(1, list.length)), lpt = Math.min(10, rh * 72 / 1.45);
     for(let i = 0; i < PLAN_DAYS; i++){
       const d = P.day(i), wk = d.getDay() === 0 || d.getDay() === 6;
       if(wk) s.addShape(pptx.ShapeType.rect, { x:gx + i * dw, y:gy - 0.05, w:dw, h:rh * list.length + 0.1, fill:{ color:'FAF9F7' }, line:{ color:'FAF9F7' } });
-      s.addText(String(d.getDate()), { x:gx + i * dw, y:1.35, w:dw, h:0.35, fontSize:10, color:i === P.ti ? C.acc : C.muted, bold:i === P.ti, align:'center', fontFace:F });
+      T(s, String(d.getDate()), { x:gx + i * dw, y:1.42, w:dw, fontSize:10, color:i === P.ti ? C.acc : C.muted, bold:i === P.ti, align:'center' });
     }
     list.forEach((r, i) => {
       const y = gy + i * rh, tasks = r.t ? [r.t] : (r.ph.tasks || []);
-      s.addText(r.t ? r.t.name : r.ph.name, { x:0.5, y, w:gx - 0.6, h:rh, fontSize:r.t ? 9.5 : 10, bold:!r.t, color:r.t ? C.ink : hex(r.ph.color), fontFace:F, valign:'middle' });
+      T(s, r.t ? r.t.name : r.ph.name, { x:0.5, y:y + (rh - lpt * 1.3 / 72) / 2, w:gx - 0.65, fontSize:lpt, bold:!r.t, color:r.t ? C.ink : hex(r.ph.color) });
       if(!tasks.length) return;
       const a = r.t ? r.t.start : Math.min(...tasks.map(t => t.start)), b = r.t ? r.t.end : Math.max(...tasks.map(t => t.end));
       if(r.t && r.t.milestone) s.addShape(pptx.ShapeType.diamond, { x:gx + a * dw + dw / 2 - rh * 0.3, y:y + rh * 0.2, w:rh * 0.6, h:rh * 0.6, fill:{ color:hex(r.ph.color) }, line:{ color:hex(r.ph.color) } });
       else s.addShape(pptx.ShapeType.roundRect, { x:gx + a * dw + 0.02, y:y + rh * (r.t ? 0.2 : 0.15), w:(b - a + 1) * dw - 0.04, h:rh * (r.t ? 0.6 : 0.7), fill:{ color:hex(r.ph.color), transparency:r.t ? (r.t.done ? 55 : 0) : 75 }, line:{ color:hex(r.ph.color), transparency:r.t ? 0 : 75 }, rectRadius:0.05 });
     });
     if(P.ti >= 0 && P.ti < PLAN_DAYS) s.addShape(pptx.ShapeType.line, { x:gx + P.ti * dw + dw / 2, y:gy - 0.05, w:0, h:rh * list.length + 0.1, line:{ color:C.acc, width:1.5 } });
-    if(!showTasks) s.addText('Showing phases only (' + P.tasks.length + ' tasks). The status report has every task.', { x:0.5, y:6.7, w:W - 1, h:0.3, fontSize:10, color:C.muted, fontFace:F });
-    // 5–8. Task lists
+    if(!showTasks) T(s, 'Showing phases only (' + plural(P.tasks.length, 'task') + '). The status report lists every task.', { x:0.5, y:6.78, w:W - 1, fontSize:10, color:C.muted });
+
+    // 5–9. Task lists and milestones
     taskSlides('In progress', P.doing, 'Nothing is marked in progress yet.');
-    taskSlides('Completed', P.done, 'No tasks completed yet.', x => x.t.doneAt ? 'Done ' + fmtD(new Date(x.t.doneAt)) : 'Done');
-    taskSlides('Coming up — next 7 days', P.upNext, 'Nothing scheduled to start in the next week.');
+    taskSlides('Coming up — next 7 days', P.upNext, 'Nothing is scheduled to start in the next week.');
     if(P.overdue.length) taskSlides('Needs attention', P.overdue, '', x => 'Planned end ' + fmtD(P.day(x.t.end)));
+    taskSlides('Completed', P.done, 'No tasks completed yet.', x => x.t.doneAt ? 'Done ' + fmtD(new Date(x.t.doneAt)) : 'Done');
+    if(D.milestones.length){
+      s = body(); head(s, 'Milestones', plural(D.milestones.length, 'milestone'));
+      D.milestones.slice(0, 8).forEach((x, i) => {
+        const y = 1.55 + i * 0.66;
+        s.addShape(pptx.ShapeType.diamond, { x:0.55, y:y + 0.03, w:0.2, h:0.2, fill:{ color:hex(x.ph.color) }, line:{ color:hex(x.ph.color) } });
+        T(s, x.t.name, { x:0.95, y, w:7.3, fontSize:16, bold:true });
+        T(s, [fmtD(P.day(x.t.start)), x.ph.name, STATUS_LABEL[D.st(x.t)]].join('  ·  '), { x:8.45, y:y + 0.03, w:4.4, fontSize:12, color:C.muted, align:'right' });
+      });
+    }
   }
-  // 9. Mood board
-  const pics = boardPictures(p).filter(im => im.src).slice(0, 6);
+
+  // Design options: a comparison table, then each option with its picture and notes
+  if(D.opts.length){
+    s = body(); head(s, 'Design options', 'Rated 1–5 on each criterion · higher is better');
+    const crit = D.criteria.slice(0, 6), optW = 3.4, avgW = 1.2, cw = (W - 1 - optW - avgW) / Math.max(1, crit.length);
+    const cellT = (v, w, o, lines) => ({ text: fit(v, w - 0.14, 11, lines || 1, o && o.bold), options: Object.assign({ fontSize:11, fontFace:F, color:C.ink, valign:'middle', margin:[0, 0.07, 0, 0.07] }, o || {}) });
+    const rowsT = [[cellT('Option', optW, { bold:true, fill:{ color:C.soft } })].concat(crit.map(c => cellT(c.name || 'Untitled', cw, { bold:true, fill:{ color:C.soft }, align:'center' }, 2)), [cellT('Average', avgW, { bold:true, fill:{ color:C.soft }, align:'center' })])];
+    D.opts.slice(0, 9).forEach(({ o, avg }, i) => rowsT.push([cellT((i + 1) + '. ' + (o.title || 'Untitled option'), optW, { bold: i === 0 && avg != null })]
+      .concat(crit.map(c => cellT(o.ratings && o.ratings[c.id] ? String(o.ratings[c.id]) : '–', cw, { align:'center' })), [cellT(avg != null ? avg.toFixed(1) : '–', avgW, { align:'center', bold:true, color: i === 0 && avg != null ? C.ok : C.ink })])));
+    s.addTable(rowsT, { x:0.5, y:1.5, w:W - 1, colW:[optW].concat(crit.map(() => cw), [avgW]), rowH:[0.6].concat(rowsT.slice(1).map(() => 0.42)), border:{ type:'solid', pt:0.75, color:C.line }, autoPage:false });
+    if(D.criteria.length > crit.length) T(s, 'Showing the first 6 criteria. The status report has all of them.', { x:0.5, y:6.78, w:W - 1, fontSize:10, color:C.muted });
+    const cards = D.opts.slice(0, 6);
+    for(let i = 0; i < cards.length; i += 3){
+      s = body(); head(s, 'Design options' + (i ? ' (continued)' : ''), 'Pictures and notes');
+      const thumbs = await Promise.all(cards.slice(i, i + 3).map(x => { const im = x.o.img && p.images[x.o.img]; return im && im.src ? thumbnail(im.src, 900) : null; }));
+      cards.slice(i, i + 3).forEach(({ o, avg }, k) => {
+        const cx = 0.5 + k * 4.18, cw2 = 3.95, t = thumbs[k];
+        s.addShape(pptx.ShapeType.roundRect, { x:cx, y:1.45, w:cw2, h:2.55, fill:{ color:C.soft }, line:{ color:C.line }, rectRadius:0.08 });
+        if(t){ const sc = Math.min((cw2 - 0.1) / t.w, 2.45 / t.h); s.addImage({ data:t.data.replace(/^data:/, ''), x:cx + (cw2 - t.w * sc) / 2, y:1.5 + (2.45 - t.h * sc) / 2, w:t.w * sc, h:t.h * sc }); }
+        else T(s, 'No picture chosen', { x:cx, y:2.6, w:cw2, fontSize:11, color:C.muted, align:'center' });
+        T(s, (i + k + 1) + '. ' + (o.title || 'Untitled option'), { x:cx, y:4.12, w:cw2, fontSize:15, bold:true, lines:2 });
+        T(s, (avg != null ? avg.toFixed(1) + ' / 5 average' : 'Not rated yet') + (i + k === 0 && avg != null && D.opts.length > 1 ? '  ·  highest score' : ''), { x:cx, y:4.7, w:cw2, fontSize:12, color:avg != null ? C.acc : C.muted });
+        T(s, o.notes || 'No notes.', { x:cx, y:5.02, w:cw2, fontSize:11.5, color:o.notes ? C.ink : C.muted, lines:8 });
+      });
+    }
+  }
+
+  // Mood board: pictures with captions, then its notes and labels
+  const pics = D.pics.filter(im => im.src).slice(0, 6);
   if(pics.length){
-    s = pptx.addSlide({ masterName:'BODY' }); head(s, 'Mood board', boardPictures(p).length + ' picture' + (boardPictures(p).length === 1 ? '' : 's'));
+    s = body(); head(s, 'Mood board', plural(D.pics.length, 'picture') + (D.boardNotes.length ? ' · ' + plural(D.boardNotes.length, 'note') : ''));
     const thumbs = await Promise.all(pics.map(im => thumbnail(im.src, 900)));
-    const cols = pics.length <= 2 ? pics.length : 3, cw = (W - 1 - (cols - 1) * 0.3) / cols, ch = pics.length <= 3 ? 4.6 : 2.45;
+    const cols = pics.length <= 2 ? pics.length : 3, cw = (W - 1 - (cols - 1) * 0.3) / cols, ch = pics.length <= 3 ? 4.3 : 2.05, capH = 0.3;
     thumbs.forEach((t, i) => {
-      if(!t) return;
-      const cx = 0.5 + (i % cols) * (cw + 0.3), cy = 1.5 + Math.floor(i / cols) * (ch + 0.25), sc = Math.min(cw / t.w, ch / t.h);
-      s.addImage({ data:t.data.replace(/^data:/, ''), x:cx + (cw - t.w * sc) / 2, y:cy + (ch - t.h * sc) / 2, w:t.w * sc, h:t.h * sc });
+      const cx = 0.5 + (i % cols) * (cw + 0.3), cy = 1.45 + Math.floor(i / cols) * (ch + capH + 0.2), im = pics[i];
+      if(t){ const sc = Math.min(cw / t.w, ch / t.h); s.addImage({ data:t.data.replace(/^data:/, ''), x:cx + (cw - t.w * sc) / 2, y:cy + (ch - t.h * sc) / 2, w:t.w * sc, h:t.h * sc }); }
+      const cap = im.caption || (D.picUse(im.id).length ? 'Picked for ' + D.picUse(im.id).join(', ') : '');
+      if(cap) T(s, cap, { x:cx, y:cy + ch + 0.06, w:cw, fontSize:10.5, color:C.muted, align:'center' });
     });
   }
-  // 10. Options
-  const opts = scoredOptions(p);
-  if(opts.length){
-    s = pptx.addSlide({ masterName:'BODY' }); head(s, 'Design options', 'Ranked by average rating');
-    opts.slice(0, 6).forEach(({ o, avg }, i) => {
-      const y = 1.55 + i * 0.85;
-      s.addText((i + 1) + '.  ' + (o.title || 'Untitled option'), { x:0.5, y, w:8.5, h:0.4, fontSize:17, bold:true, color:C.ink, fontFace:F });
-      s.addText(avg != null ? avg.toFixed(1) + ' / 5' : 'Not rated', { x:10.3, y, w:2.5, h:0.4, fontSize:15, color:avg != null ? C.acc : C.muted, align:'right', fontFace:F });
-      if(o.notes) s.addText(o.notes.replace(/\s+/g, ' ').slice(0, 150), { x:0.9, y:y + 0.38, w:11.9, h:0.36, fontSize:12, color:C.muted, fontFace:F });
+  const sticky = D.boardNotes.slice(0, 6), labels = D.labels.map(c => c.text);
+  if(sticky.length || labels.length){
+    s = body(); head(s, 'Ideas on the mood board', [sticky.length ? plural(D.boardNotes.length, 'note') : '', labels.length ? plural(labels.length, 'label') : ''].filter(Boolean).join(' · '));
+    if(labels.length) T(s, 'Labels: ' + labels.join('  ·  '), { x:0.5, y:1.4, w:W - 1, fontSize:13, color:C.muted, lines:2 });
+    const top = labels.length ? 2.05 : 1.5, cols = 3, cw = (W - 1 - 0.6) / cols, chh = sticky.length > 3 ? 2.35 : 4.6;
+    sticky.forEach((c, i) => {
+      const cx = 0.5 + (i % cols) * (cw + 0.3), cy = top + Math.floor(i / cols) * (chh + 0.2);
+      s.addShape(pptx.ShapeType.rect, { x:cx, y:cy, w:cw, h:chh, fill:{ color:'FFF6D6' }, line:{ color:'F1E3AE' } });
+      T(s, c.text, { x:cx + 0.15, y:cy + 0.15, w:cw - 0.3, fontSize:12, lines: Math.max(1, Math.floor((chh - 0.3) / (12 * 1.3 / 72))) });
+    });
+  }
+
+  // Notes: titles and the start of each note
+  const notes = D.notes.slice(0, 6);
+  for(let i = 0; i < notes.length; i += 3){
+    s = body(); head(s, 'Notes' + (i ? ' (continued)' : ''), plural(D.notes.length, 'note'));
+    notes.slice(i, i + 3).forEach((n, k) => {
+      const y = 1.45 + k * 1.8, txt = noteLines(n.html);
+      T(s, n.title || 'Untitled note', { x:0.5, y, w:9.2, fontSize:16, bold:true });
+      T(s, 'Edited ' + fmtDate(n.updatedAt, false), { x:9.8, y:y + 0.03, w:3.05, fontSize:11, color:C.muted, align:'right' });
+      T(s, txt || 'Empty note.', { x:0.5, y:y + 0.38, w:W - 1, fontSize:12, color:txt ? C.ink : C.muted, lines:5 });
+    });
+  }
+
+  // Recent activity
+  if(D.history.length){
+    s = body(); head(s, 'Recent activity', 'Latest saved changes');
+    D.history.slice(0, 10).forEach((h, i) => {
+      const y = 1.5 + i * 0.52;
+      T(s, fmtDate(h.t), { x:0.5, y, w:2.4, fontSize:12, color:C.muted });
+      T(s, MODULES[h.mod] ? MODULES[h.mod].label : h.mod, { x:3.0, y, w:1.9, fontSize:12, bold:true });
+      T(s, h.summary, { x:5.0, y, w:W - 5.5, fontSize:12 });
     });
   }
   return pptx.write({ outputType:'blob' });
 }
+
 async function makeSlides(p){
   const name = (p.name || 'Project') + ' — Status update ' + localDay(nowISO());
   if(!driveOn){
@@ -1781,11 +1983,11 @@ async function makeSlides(p){
 }
 function openReports(anchor, p){
   const item = (title, text, btn) => el('div', { class:'rep-item' }, el('div', { class:'rep-tx' }, el('strong', { text:title }), el('span', { text }) ), btn);
-  const body = el('div', { class:'rep-pop' }, el('div', { class:'rep-h', text:'Progress for Google' }));
+  const body = el('div', { class:'rep-pop' }, el('div', { class:'rep-h', text:'Report' }));
   if(driveOn){
     body.append(
-      item('Status report · Google Docs', 'Kept up to date in this project’s Drive folder. Gemini and NotebookLM can read it.', el('button', { class:'btn', onclick(){ closePop(); openStatusReport(p); } }, 'Open')),
-      item('Status slides · Google Slides', 'A fresh deck from today’s progress: overview, phases, timeline, what’s in progress, done and next, mood board, options.', el('button', { class:'btn primary', onclick(){ closePop(); makeSlides(p); } }, 'Make slides')),
+      item('Status report · Google Docs', 'A detailed report of the whole project: schedule, every task, design options, mood board, notes, files and recent changes. Kept up to date in the project’s Drive folder.', el('button', { class:'btn', onclick(){ closePop(); openStatusReport(p); } }, 'Open')),
+      item('Status slides · Google Slides', 'A fresh deck: overview, phases, timeline, tasks, milestones, design options, mood board, notes and recent activity.', el('button', { class:'btn primary', onclick(){ closePop(); makeSlides(p); } }, 'Make slides')),
       el('div', { class:'rep-tip', text:'Tip: in Google Slides, ask Gemini to restyle or add to the deck. In Gemini or NotebookLM, add the status report and ask “Write a status update for my boss.”' }));
   } else {
     body.append(
